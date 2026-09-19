@@ -1,0 +1,138 @@
+-- =============================================================================
+-- Named queries — one per MCP tool / CLI subcommand.
+-- Format is sqlc-compatible (-- name: X :many), so Go code can be generated
+-- from these, but they're plain SQL you can paste into the sqlite3 shell.
+--
+-- Scoping rule used everywhere:
+--   :project_id  -> required for project scope; the app omits it for cross-project
+--   :agent       -> NULL = cross-agent (everyone's files), 'codex' = within-agent
+-- =============================================================================
+
+
+-- name: SearchKeyword :many
+-- BM25 keyword search. Great for exact things: error strings, function names,
+-- ticket ids. FTS5's `rank` is lower-is-better, so ASC is the right order.
+-- snippet() returns a ~24-token window with the hit bracketed — the
+-- highlighted line on the index card, not the whole card.
+SELECT c.id                                       AS chunk_id,
+       c.session_id,
+       s.agent,
+       s.started_at,
+       snippet(chunks_fts, 0, '[', ']', ' … ', 24) AS snippet,
+       chunks_fts.rank                             AS bm25
+  FROM chunks_fts
+  JOIN chunks   c ON c.id = chunks_fts.rowid
+  JOIN sessions s ON s.id = c.session_id
+ WHERE chunks_fts MATCH :query
+   AND s.project_id = :project_id
+   AND (:agent IS NULL OR s.agent = :agent)
+ ORDER BY chunks_fts.rank
+ LIMIT :limit;
+
+
+-- name: SearchHybrid :many
+-- Reciprocal Rank Fusion of keyword + semantic results.
+--
+-- Analogy: two assessors each rank the same 50 claims. Their raw scores are on
+-- different scales (BM25 vs cosine distance), so we don't average scores —
+-- we average *positions*. A claim ranked 1st by one assessor and 3rd by the
+-- other beats one ranked 1st by only one of them. The constant 60 damps the
+-- advantage of being exactly 1st vs 2nd; it's the standard value from the
+-- original RRF paper and rarely worth tuning.
+--
+-- NOTE: vec0 wants its filters as plain equality constraints, so the app
+-- builds two variants of the `sem` CTE: with and without `AND agent = :agent`.
+-- This file shows the cross-agent, project-scoped variant.
+WITH kw AS (
+    SELECT c.id AS chunk_id,
+           row_number() OVER (ORDER BY chunks_fts.rank) AS r
+      FROM chunks_fts
+      JOIN chunks   c ON c.id = chunks_fts.rowid
+      JOIN sessions s ON s.id = c.session_id
+     WHERE chunks_fts MATCH :query
+       AND s.project_id = :project_id
+     ORDER BY chunks_fts.rank
+     LIMIT 50
+),
+sem AS (
+    SELECT chunk_id,
+           row_number() OVER (ORDER BY distance) AS r
+      FROM chunk_vectors
+     WHERE embedding MATCH :query_embedding       -- JSON array or float32 blob
+       AND k = 50
+       AND project_id = :project_id
+),
+fused AS (
+    SELECT chunk_id, SUM(1.0 / (60 + r)) AS score
+      FROM (SELECT chunk_id, r FROM kw UNION ALL SELECT chunk_id, r FROM sem)
+     GROUP BY chunk_id
+)
+SELECT f.chunk_id,
+       f.score,
+       c.session_id,
+       s.agent,
+       s.title,
+       s.started_at,
+       substr(c.text, 1, 400) AS preview           -- summary first; full text on request
+  FROM fused f
+  JOIN chunks   c ON c.id = f.chunk_id
+  JOIN sessions s ON s.id = c.session_id
+ ORDER BY f.score DESC
+ LIMIT :limit;
+
+
+-- name: RecentSessions :many
+SELECT *
+  FROM v_session_overview
+ WHERE project_id = :project_id
+   AND (:agent IS NULL OR agent = :agent)
+ ORDER BY started_at DESC
+ LIMIT :limit;
+
+
+-- name: SessionsTouchingFile :many
+-- "Before I edit this file, who has been here before and what did they do?"
+SELECT s.id, s.agent, s.title, s.started_at,
+       group_concat(DISTINCT ft.action) AS actions,
+       COUNT(*)                          AS touches
+  FROM file_touches ft
+  JOIN sessions s ON s.id = ft.session_id
+ WHERE ft.project_id = :project_id
+   AND ft.path = :path
+ GROUP BY s.id
+ ORDER BY s.started_at DESC
+ LIMIT :limit;
+
+
+-- name: GetSessionMessages :many
+-- Paged transcript read. The app caps (to_seq - from_seq) so an agent can't
+-- swallow a 2,000-message session in one call.
+SELECT seq, role, kind, tool_name, content, created_at
+  FROM messages
+ WHERE session_id = :session_id
+   AND seq BETWEEN :from_seq AND :to_seq
+   AND kind <> 'thinking'                          -- reasoning traces rarely help retrieval
+ ORDER BY seq;
+
+
+-- name: SearchNotes :many
+-- Live notes only (superseded ones are history, not guidance). Global notes
+-- (project_id IS NULL) are included in every project's results.
+SELECT n.id, n.kind, n.title, n.body, n.tags, n.agent, n.created_at
+  FROM notes_fts
+  JOIN notes n ON n.id = notes_fts.rowid
+ WHERE notes_fts MATCH :query
+   AND n.superseded_by IS NULL
+   AND (n.project_id = :project_id OR n.project_id IS NULL)
+ ORDER BY notes_fts.rank
+ LIMIT :limit;
+
+
+-- name: PendingEmbeddings :many
+-- The embed worker's to-do list.
+SELECT c.id, c.text, s.project_id, s.agent, c.session_id
+  FROM chunks c
+  JOIN sessions s ON s.id = c.session_id
+ WHERE c.embedded_at IS NULL
+ ORDER BY c.id
+ LIMIT :limit;
