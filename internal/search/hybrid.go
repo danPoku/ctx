@@ -43,7 +43,7 @@ func Hybrid(ctx context.Context, db *sql.DB, client embed.Embedder, query string
 
 	queryName := "SearchHybrid"
 	args := []any{
-		sql.Named("query", query),
+		sql.Named("query", sanitizeFTS5Query(query)),
 		sql.Named("query_embedding", string(vecJSON)),
 		sql.Named("project_id", projectID),
 		sql.Named("limit", limit),

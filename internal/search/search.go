@@ -35,7 +35,7 @@ func Keyword(db *sql.DB, query string, projectID int64, agent string, limit int)
 	}
 
 	rows, err := db.Query(sqlText,
-		sql.Named("query", query),
+		sql.Named("query", sanitizeFTS5Query(query)),
 		sql.Named("project_id", projectID),
 		sql.Named("agent", agentArg),
 		sql.Named("limit", limit),
@@ -76,7 +76,7 @@ func Notes(db *sql.DB, query string, projectID int64, limit int) ([]NoteResult, 
 	}
 
 	rows, err := db.Query(sqlText,
-		sql.Named("query", query),
+		sql.Named("query", sanitizeFTS5Query(query)),
 		sql.Named("project_id", projectID),
 		sql.Named("limit", limit),
 	)

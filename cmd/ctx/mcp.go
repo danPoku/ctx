@@ -7,6 +7,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/kojog/ctx/internal/embed"
 	"github.com/kojog/ctx/internal/mcpserver"
 )
 
@@ -25,7 +26,8 @@ func runMCP(args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve working directory: %w", err)
 	}
-	srv, err := mcpserver.New(db, cwd)
+	client := embed.NewOllamaClient(embed.DefaultBaseURL, embed.DefaultModel)
+	srv, err := mcpserver.New(db, cwd, client)
 	if err != nil {
 		return err
 	}

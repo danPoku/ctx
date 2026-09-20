@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,17 @@ import (
 	"github.com/kojog/ctx/internal/mcpserver"
 	"github.com/kojog/ctx/internal/store"
 )
+
+// brokenEmbedder always fails, so these tests are hermetic: they must not
+// depend on whether some Ollama instance happens to be reachable at
+// embed.DefaultBaseURL on the machine running them. mcpserver.New takes an
+// embed.Embedder explicitly for exactly this reason.
+type brokenEmbedder struct{}
+
+func (brokenEmbedder) Model() string { return "broken" }
+func (brokenEmbedder) Embed(context.Context, string) ([]float32, error) {
+	return nil, errors.New("no embedder configured for this test")
+}
 
 // testServer wires up a real ctx MCP server against a temp DB seeded with
 // the claudecode fixture (cwd "/home/dev/proj"), connected in-process to a
@@ -45,7 +57,7 @@ func testServer(t *testing.T) (*sdkmcp.ClientSession, *sql.DB) {
 		t.Fatalf("ingest.Run: %v", err)
 	}
 
-	srv, err := mcpserver.New(db, "/home/dev/proj")
+	srv, err := mcpserver.New(db, "/home/dev/proj", brokenEmbedder{})
 	if err != nil {
 		t.Fatalf("mcpserver.New: %v", err)
 	}
@@ -115,12 +127,12 @@ func TestSearchContext(t *testing.T) {
 	if !strings.Contains(out.Results[0].Snippet, "WAL") {
 		t.Errorf("Snippet = %q, want it to contain WAL", out.Results[0].Snippet)
 	}
-	// This test environment has no Ollama reachable at the default URL, so
-	// search_context must transparently fall back to keyword-only rather
-	// than error — proof search.Best's fallback is actually wired through
-	// the MCP layer, not just tested in isolation.
+	// testServer wires up brokenEmbedder, so search_context must
+	// transparently fall back to keyword-only rather than error — proof
+	// search.Best's fallback is actually wired through the MCP layer, not
+	// just tested in isolation.
 	if out.UsedSemanticSearch {
-		t.Error("UsedSemanticSearch = true, want false (no Ollama reachable in this test environment)")
+		t.Error("UsedSemanticSearch = true, want false (brokenEmbedder always fails)")
 	}
 }
 

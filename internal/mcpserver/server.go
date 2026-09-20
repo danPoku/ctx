@@ -27,16 +27,17 @@ type server struct {
 }
 
 // New builds the ctx MCP server and registers every tool. cwd is the
-// directory the `ctx mcp` process was launched from.
-func New(db *sql.DB, cwd string) (*mcp.Server, error) {
+// directory the `ctx mcp` process was launched from. embedClient backs
+// search_context's semantic half — callers construct it explicitly (rather
+// than New picking a default internally) so tests can inject a fake instead
+// of depending on whatever Ollama happens to be reachable at
+// embed.DefaultBaseURL on the machine running them.
+func New(db *sql.DB, cwd string, embedClient embed.Embedder) (*mcp.Server, error) {
 	projectID, err := store.ResolveProject(db, cwd)
 	if err != nil {
 		return nil, fmt.Errorf("resolve project for %s: %w", cwd, err)
 	}
-	s := &server{
-		db: db, projectID: projectID,
-		embedClient: embed.NewOllamaClient(embed.DefaultBaseURL, embed.DefaultModel),
-	}
+	s := &server{db: db, projectID: projectID, embedClient: embedClient}
 
 	srv := mcp.NewServer(&mcp.Implementation{Name: "ctx", Version: "0.1.0"}, nil)
 	s.registerSearch(srv)
