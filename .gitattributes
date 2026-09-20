@@ -1,1 +1,7 @@
 * text=auto eol=lf
+
+# Vendored third-party C (sqlite-vec and the SQLite headers it builds against).
+# Keeps GitHub's language bar from showing this repo as mostly C.
+internal/vecext/sqlite-vec.c linguist-vendored
+internal/vecext/sqlite-vec.h linguist-vendored
+internal/vecext/sqlite3.h linguist-vendored
