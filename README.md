@@ -20,7 +20,7 @@ $ ctx search "how does the daemon embed new chunks in the background"
 
 ## Status
 
-Early. It has been run on one machine, by its author, on Ubuntu under WSL2;
+Early. It has been run on one machine, on Ubuntu under WSL2;
 other platforms are untested. There is no tagged release, and the database
 schema and MCP tool output can still change. See
 [Limitations](#limitations) before relying on it.
