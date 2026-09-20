@@ -1,6 +1,6 @@
 // Command ctx is the single binary for the local multi-agent context store:
 // ingesting agent sessions, indexing them, and serving them back over MCP
-// and the CLI. This milestone only wires up `ctx init`.
+// and the CLI.
 package main
 
 import (
@@ -23,6 +23,16 @@ func main() {
 			fmt.Fprintln(os.Stderr, "ctx init:", err)
 			os.Exit(1)
 		}
+	case "ingest":
+		if err := runIngest(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "ctx ingest:", err)
+			os.Exit(1)
+		}
+	case "search":
+		if err := runSearch(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "ctx search:", err)
+			os.Exit(1)
+		}
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -36,7 +46,9 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `usage: ctx <command> [flags]
 
 commands:
-  init    create ~/.ctx and its database`)
+  init                       create ~/.ctx and its database
+  ingest [--path FILE]       ingest Claude Code sessions (default: scan ~/.claude/projects)
+  search <query> [flags]     keyword search over ingested sessions in this project`)
 }
 
 func runInit() error {

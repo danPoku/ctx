@@ -1,0 +1,11 @@
+{"type":"mode","mode":"normal","sessionId":"sess-1"}
+{"type":"permission-mode","permissionMode":"default","sessionId":"sess-1"}
+{"type":"user","message":{"role":"user","content":"How do I open the sqlite database with WAL mode?"},"sessionId":"sess-1","cwd":"/home/dev/proj","gitBranch":"main","version":"1.0.0","timestamp":"2026-09-20T10:00:00Z"}
+{"type":"assistant","message":{"role":"assistant","model":"claude-sonnet-5","content":[{"type":"thinking","thinking":"Let me check the store package."}]},"sessionId":"sess-1","cwd":"/home/dev/proj","timestamp":"2026-09-20T10:00:01Z"}
+{"type":"assistant","message":{"role":"assistant","model":"claude-sonnet-5","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"path":"internal/store/store.go"}}]},"sessionId":"sess-1","cwd":"/home/dev/proj","timestamp":"2026-09-20T10:00:02Z"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"package store\nfunc Open(path string) (*sql.DB, error) { ... }","is_error":false}]},"sessionId":"sess-1","cwd":"/home/dev/proj","timestamp":"2026-09-20T10:00:03Z"}
+{"type":"assistant","message":{"role":"assistant","model":"claude-sonnet-5","content":[{"type":"text","text":"Open it with a DSN carrying _journal_mode=WAL in the query string."}]},"sessionId":"sess-1","cwd":"/home/dev/proj","timestamp":"2026-09-20T10:00:04Z"}
+{"type":"ai-title","aiTitle":"WAL mode question","sessionId":"sess-1"}
+{"type":"user","message":{"role":"user","content":"Great, and how do I redact API keys before storing them?"},"sessionId":"sess-1","cwd":"/home/dev/proj","timestamp":"2026-09-20T10:01:00Z"}
+{"type":"assistant","message":{"role":"assistant","model":"claude-sonnet-5","content":[{"type":"tool_use","id":"toolu_2","name":"Bash","input":{"command":"cat internal/redact/redact.go"}}]},"sessionId":"sess-1","cwd":"/home/dev/proj","timestamp":"2026-09-20T10:01:01Z"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_2","content":"package redact\nfunc Redact(s string) string { ... }","is_error":false}]},"sessionId":"sess-1","cwd":"/home/dev/proj","timestamp":"2026-09-20T10:01:02Z"}
