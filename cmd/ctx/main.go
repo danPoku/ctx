@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kojog/ctx/internal/store"
 )
@@ -46,9 +47,35 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `usage: ctx <command> [flags]
 
 commands:
-  init                       create ~/.ctx and its database
-  ingest [--path FILE]       ingest Claude Code sessions (default: scan ~/.claude/projects)
-  search <query> [flags]     keyword search over ingested sessions in this project`)
+  init                                create ~/.ctx and its database
+  ingest [--path FILE] [--agent A]    ingest sessions (default: scan Claude Code + Codex session dirs)
+  search <query> [--agent A] [--limit N]   keyword search over ingested sessions in this project`)
+}
+
+// reorderFlagsFirst hoists any token in args matching a name in
+// flagsWithValue (plus the value token right after it) to the front, in
+// place, leaving the rest as a trailing run of positional args.
+//
+// Go's flag package stops parsing at the first non-flag token, so
+// "ctx search some query --agent codex" would otherwise swallow "--agent
+// codex" into the query text itself instead of parsing it as a flag — a
+// query-first-then-flags order is the natural way to type a search command,
+// so it needs to actually work.
+func reorderFlagsFirst(args []string, flagsWithValue map[string]bool) []string {
+	var flags, positional []string
+	for i := 0; i < len(args); i++ {
+		name, _, hasEquals := strings.Cut(strings.TrimLeft(args[i], "-"), "=")
+		if !flagsWithValue[name] {
+			positional = append(positional, args[i])
+			continue
+		}
+		flags = append(flags, args[i])
+		if !hasEquals && i+1 < len(args) {
+			i++
+			flags = append(flags, args[i])
+		}
+	}
+	return append(flags, positional...)
 }
 
 func runInit() error {

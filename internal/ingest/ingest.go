@@ -20,10 +20,16 @@ type FileResult struct {
 	Err  error
 }
 
-// RunAll walks root for *.jsonl files and calls Run on each. A missing root
-// (no sessions ingested yet on this machine) is not an error — it just
-// yields no results.
-func RunAll(db *sql.DB, adapter Adapter, root string) ([]FileResult, error) {
+// RunAll walks root for *.jsonl files and calls Run on each, using a fresh
+// Adapter per file. The factory (rather than a single shared instance)
+// matters for an adapter like Codex's, whose log format carries no per-line
+// session id — the adapter has to remember the current session id as state
+// across ParseLine calls within one file, and reusing one instance across
+// multiple files would leak that state between unrelated sessions.
+//
+// A missing root (no sessions ingested yet on this machine) is not an
+// error — it just yields no results.
+func RunAll(db *sql.DB, newAdapter func() Adapter, root string) ([]FileResult, error) {
 	var results []FileResult
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -32,7 +38,7 @@ func RunAll(db *sql.DB, adapter Adapter, root string) ([]FileResult, error) {
 		if d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 			return nil
 		}
-		results = append(results, FileResult{Path: path, Err: Run(db, adapter, path)})
+		results = append(results, FileResult{Path: path, Err: Run(db, newAdapter(), path)})
 		return nil
 	})
 	if errors.Is(err, fs.ErrNotExist) {

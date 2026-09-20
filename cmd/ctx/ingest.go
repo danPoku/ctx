@@ -8,12 +8,36 @@ import (
 
 	"github.com/kojog/ctx/internal/ingest"
 	"github.com/kojog/ctx/internal/ingest/claudecode"
+	"github.com/kojog/ctx/internal/ingest/codex"
 	"github.com/kojog/ctx/internal/store"
 )
 
+// agentSource pairs an agent with where its session logs live and how to
+// get a fresh adapter for them (RunAll needs a new instance per file — see
+// its doc for why: Codex's adapter is stateful within a file).
+type agentSource struct {
+	name       string
+	root       func(home string) string
+	newAdapter func() ingest.Adapter
+}
+
+var agentSources = []agentSource{
+	{
+		name:       "claude-code",
+		root:       func(home string) string { return filepath.Join(home, ".claude", "projects") },
+		newAdapter: func() ingest.Adapter { return claudecode.New() },
+	},
+	{
+		name:       "codex",
+		root:       func(home string) string { return filepath.Join(home, ".codex", "sessions") },
+		newAdapter: func() ingest.Adapter { return codex.New() },
+	},
+}
+
 func runIngest(args []string) error {
 	fs := flag.NewFlagSet("ingest", flag.ContinueOnError)
-	path := fs.String("path", "", "ingest a single JSONL file instead of scanning ~/.claude/projects")
+	path := fs.String("path", "", "ingest a single JSONL file instead of scanning the default session directories")
+	agent := fs.String("agent", "claude-code", "which adapter to use with --path (claude-code or codex)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -31,30 +55,42 @@ func runIngest(args []string) error {
 		return err
 	}
 
-	adapter := claudecode.New()
-
 	if *path != "" {
-		if err := ingest.Run(db, adapter, *path); err != nil {
+		src, err := findAgentSource(*agent)
+		if err != nil {
+			return err
+		}
+		if err := ingest.Run(db, src.newAdapter(), *path); err != nil {
 			return fmt.Errorf("%s: %w", *path, err)
 		}
 		fmt.Println("ingested", *path)
 		return nil
 	}
 
-	root := filepath.Join(home, ".claude", "projects")
-	results, err := ingest.RunAll(db, adapter, root)
-	if err != nil {
-		return err
-	}
 	ok, failed := 0, 0
-	for _, r := range results {
-		if r.Err != nil {
-			failed++
-			fmt.Fprintf(os.Stderr, "ctx ingest: %s: %v\n", r.Path, r.Err)
-			continue
+	for _, src := range agentSources {
+		results, err := ingest.RunAll(db, src.newAdapter, src.root(home))
+		if err != nil {
+			return fmt.Errorf("%s: %w", src.name, err)
 		}
-		ok++
+		for _, r := range results {
+			if r.Err != nil {
+				failed++
+				fmt.Fprintf(os.Stderr, "ctx ingest: %s: %v\n", r.Path, r.Err)
+				continue
+			}
+			ok++
+		}
 	}
 	fmt.Printf("ingested %d file(s), %d failed\n", ok, failed)
 	return nil
+}
+
+func findAgentSource(name string) (agentSource, error) {
+	for _, src := range agentSources {
+		if src.name == name {
+			return src, nil
+		}
+	}
+	return agentSource{}, fmt.Errorf("unknown agent %q (want claude-code or codex)", name)
 }

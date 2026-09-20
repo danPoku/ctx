@@ -9,6 +9,7 @@ import (
 
 	"github.com/kojog/ctx/internal/ingest"
 	"github.com/kojog/ctx/internal/ingest/claudecode"
+	"github.com/kojog/ctx/internal/ingest/codex"
 	"github.com/kojog/ctx/internal/store"
 )
 
@@ -25,17 +26,16 @@ func openTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-// copyFixture puts a mutable copy of the claudecode adapter's fixture
-// session into a temp file, so tests can append to it to simulate a session
-// continuing between two ingest runs without touching the checked-in
-// testdata.
-func copyFixture(t *testing.T) string {
+// copyFixture puts a mutable copy of an adapter's fixture session into a
+// temp file, so tests can append to it to simulate a session continuing
+// between two ingest runs without touching the checked-in testdata.
+func copyFixture(t *testing.T, srcPath string) string {
 	t.Helper()
-	src, err := os.ReadFile("claudecode/testdata/session.jsonl")
+	src, err := os.ReadFile(srcPath)
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
-	path := filepath.Join(t.TempDir(), "session.jsonl")
+	path := filepath.Join(t.TempDir(), filepath.Base(srcPath))
 	if err := os.WriteFile(path, src, 0644); err != nil {
 		t.Fatalf("write fixture copy: %v", err)
 	}
@@ -44,7 +44,7 @@ func copyFixture(t *testing.T) string {
 
 func TestRunIngestsSessionAndChunksOnlySettledTurns(t *testing.T) {
 	db := openTestDB(t)
-	path := copyFixture(t)
+	path := copyFixture(t, "claudecode/testdata/session.jsonl")
 	adapter := claudecode.New()
 
 	if err := ingest.Run(db, adapter, path); err != nil {
@@ -104,7 +104,7 @@ func TestRunIngestsSessionAndChunksOnlySettledTurns(t *testing.T) {
 
 func TestRunIsIdempotentAndCompletesDanglingTurnsOnReingest(t *testing.T) {
 	db := openTestDB(t)
-	path := copyFixture(t)
+	path := copyFixture(t, "claudecode/testdata/session.jsonl")
 	adapter := claudecode.New()
 
 	if err := ingest.Run(db, adapter, path); err != nil {
@@ -187,5 +187,64 @@ not valid json at all
 	}
 	if !lastErr.Valid || lastErr.String == "" {
 		t.Errorf("sources.last_error = %v, want the malformed line's error recorded", lastErr)
+	}
+}
+
+// TestRunCodexSessionChunksOnlySettledTurns is the Codex analog of
+// TestRunIngestsSessionAndChunksOnlySettledTurns: same settled/dangling
+// chunking rule, exercised through a structurally different adapter (no
+// per-line session id, content_item_kinds-driven turn classification) to
+// confirm that logic is genuinely agent-agnostic and not accidentally
+// tailored to Claude Code's shape.
+func TestRunCodexSessionChunksOnlySettledTurns(t *testing.T) {
+	db := openTestDB(t)
+	path := copyFixture(t, "codex/testdata/session.jsonl")
+
+	// Each Run needs its own Adapter instance — Codex's adapter carries
+	// per-file session-id state (see its package doc).
+	if err := ingest.Run(db, codex.New(), path); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	var msgCount int
+	db.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&msgCount)
+	if msgCount != 9 {
+		t.Errorf("messages = %d, want 9", msgCount)
+	}
+
+	var agent string
+	if err := db.QueryRow(`SELECT agent FROM sessions`).Scan(&agent); err != nil {
+		t.Fatalf("query session: %v", err)
+	}
+	if agent != "codex" {
+		t.Errorf("agent = %q, want codex", agent)
+	}
+
+	// The fixture's second turn ends on a bare tool_call (a destructive
+	// `rm`, deliberately never actually run — it's fixture text) with no
+	// tool_result or closing assistant text: must not be chunked.
+	var chunkCount int
+	db.QueryRow(`SELECT COUNT(*) FROM chunks`).Scan(&chunkCount)
+	if chunkCount != 1 {
+		t.Errorf("chunks = %d, want 1 (second turn is still dangling)", chunkCount)
+	}
+
+	var text string
+	if err := db.QueryRow(`SELECT text FROM chunks`).Scan(&text); err != nil {
+		t.Fatalf("query chunk: %v", err)
+	}
+	if !strings.Contains(text, "How many files") || !strings.Contains(text, "2 files") {
+		t.Errorf("chunk text = %q, want the real question and answer", text)
+	}
+	// The framework-injected context (skills instructions, environment
+	// snapshot) that arrived under role=developer/user before the genuine
+	// user.text turn must not have been misread as part of the turn.
+	if strings.Contains(text, "skills_instructions") || strings.Contains(text, "environment_context") {
+		t.Errorf("chunk text = %q, framework-injected context leaked into the index", text)
+	}
+	// The tool call itself must be trimmed — "main.go" is fine here since
+	// it's also genuinely part of the assistant's final answer text.
+	if strings.Contains(text, "ls -1") {
+		t.Errorf("chunk text = %q, tool call leaked into the index", text)
 	}
 }

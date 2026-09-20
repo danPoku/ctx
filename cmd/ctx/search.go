@@ -11,11 +11,16 @@ import (
 	"github.com/kojog/ctx/internal/store"
 )
 
+// searchFlagsWithValue lists this command's flags that take a value, so
+// reorderFlagsFirst knows to keep each one paired with its following token
+// when it hoists them ahead of the query words.
+var searchFlagsWithValue = map[string]bool{"agent": true, "limit": true}
+
 func runSearch(args []string) error {
 	fs := flag.NewFlagSet("search", flag.ContinueOnError)
 	agent := fs.String("agent", "", "restrict to one agent (default: all agents)")
 	limit := fs.Int("limit", 10, "max results")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderFlagsFirst(args, searchFlagsWithValue)); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
