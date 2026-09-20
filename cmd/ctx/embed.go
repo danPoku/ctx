@@ -25,19 +25,12 @@ func runEmbed(args []string) error {
 
 	client := embed.NewOllamaClient(*baseURL, *model)
 
-	total := 0
-	for {
-		n, err := embed.Run(context.Background(), db, client, *batchSize)
-		total += n
-		if err != nil {
-			if total > 0 {
-				fmt.Printf("embedded %d chunk(s) before hitting an error\n", total)
-			}
-			return err
+	total, err := embed.Drain(context.Background(), db, client, *batchSize)
+	if err != nil {
+		if total > 0 {
+			fmt.Printf("embedded %d chunk(s) before hitting an error\n", total)
 		}
-		if n == 0 {
-			break
-		}
+		return err
 	}
 	fmt.Printf("embedded %d chunk(s)\n", total)
 	return nil

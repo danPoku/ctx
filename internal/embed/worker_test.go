@@ -4,8 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/kojog/ctx/internal/store"
 )
@@ -175,4 +179,91 @@ func TestRunStopsOnEmbedErrorButKeepsPriorProgress(t *testing.T) {
 	if embedded != 1 {
 		t.Errorf("embedded chunks in DB = %d, want 1 (not rolled back)", embedded)
 	}
+}
+
+func TestDrainEmbedsEverythingAcrossBatchesAndStopsOnSkippedOnly(t *testing.T) {
+	db := openTestDB(t)
+	for i := 0; i < 5; i++ {
+		seedChunk(t, db, fmt.Sprintf("claude-code:s%d", i), true, "chunk text")
+	}
+	// A chunk whose session has no project is skipped by Run and stays
+	// pending; Drain must still terminate instead of retrying it forever.
+	seedChunk(t, db, "claude-code:orphan", false, "no project")
+
+	client := &fakeEmbedder{model: "nomic-embed-text"}
+	total, err := Drain(context.Background(), db, client, 2) // 5 chunks over 3 batches
+	if err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+	if total != 5 {
+		t.Errorf("Drain embedded %d, want 5", total)
+	}
+}
+
+func TestDrainReportsPartialProgressOnError(t *testing.T) {
+	db := openTestDB(t)
+	for i := 0; i < 4; i++ {
+		seedChunk(t, db, fmt.Sprintf("claude-code:s%d", i), true, "chunk text")
+	}
+	client := &fakeEmbedder{model: "nomic-embed-text", failAt: 3}
+	total, err := Drain(context.Background(), db, client, 10)
+	if err == nil {
+		t.Fatal("expected the simulated failure to surface")
+	}
+	if total != 2 {
+		t.Errorf("partial progress = %d, want 2 (chunks embedded before the failing one)", total)
+	}
+}
+
+func TestRunEveryLogsAFailureOnceThenRecovery(t *testing.T) {
+	db := openTestDB(t)
+	seedChunk(t, db, "claude-code:s1", true, "chunk text")
+
+	client := &flakyEmbedder{fakeEmbedder: fakeEmbedder{model: "nomic-embed-text"}, failFirst: 3}
+	var mu sync.Mutex
+	var lines []string
+	logf := func(format string, args ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+		lines = append(lines, fmt.Sprintf(format, args...))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	RunEvery(ctx, db, client, 10, 30*time.Millisecond, logf)
+
+	mu.Lock()
+	defer mu.Unlock()
+	var paused, recovered, embedded int
+	for _, l := range lines {
+		switch {
+		case strings.Contains(l, "paused"):
+			paused++
+		case strings.Contains(l, "recovered"):
+			recovered++
+		case strings.Contains(l, "embedded 1 chunk"):
+			embedded++
+		}
+	}
+	if paused != 1 {
+		t.Errorf("failure logged %d times, want exactly once despite %d failing ticks: %v", paused, client.failFirst, lines)
+	}
+	if recovered != 1 || embedded != 1 {
+		t.Errorf("recovered=%d embedded=%d, want 1 each: %v", recovered, embedded, lines)
+	}
+}
+
+// flakyEmbedder fails its first failFirst Embed calls, like an Ollama that is
+// down for a while and then comes back.
+type flakyEmbedder struct {
+	fakeEmbedder
+	failFirst int
+}
+
+func (f *flakyEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	f.calls++
+	if f.calls <= f.failFirst {
+		return nil, errors.New("connection refused")
+	}
+	return fixedVector(Dims, 0.1), nil
 }
