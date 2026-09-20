@@ -119,6 +119,9 @@ func (a Adapter) parseConversational(l line, raw []byte) (ingest.ParseResult, er
 	// system-injected boilerplate under role=user).
 	var text string
 	if err := json.Unmarshal(l.Message.Content, &text); err == nil {
+		if l.Message.Role == "user" {
+			text = cleanUserText(text)
+		}
 		return ingest.ParseResult{
 			Message: &ingest.RawMessage{
 				Role: l.Message.Role, Kind: "text", Content: text,
@@ -144,6 +147,9 @@ func (a Adapter) parseConversational(l line, raw []byte) (ingest.ParseResult, er
 	switch b.Type {
 	case "text":
 		msg.Role, msg.Kind, msg.Content = l.Message.Role, "text", b.Text
+		if l.Message.Role == "user" {
+			msg.Content = cleanUserText(b.Text)
+		}
 	case "thinking":
 		msg.Role, msg.Kind, msg.Content = l.Message.Role, "thinking", b.Thinking
 	case "tool_use":

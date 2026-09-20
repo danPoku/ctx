@@ -232,9 +232,15 @@ func (a *Adapter) parseMessage(p responseItemPayload, raw []byte, timestamp stri
 	}
 
 	role, kind := classifyMessage(p.Role, p.Meta.ContentItemKinds)
+	content := blocks[0].Text
+	if role == "user" && kind == "text" {
+		// Only a genuine human prompt is escaped by the extension; assistant
+		// text and injected framework context are stored as written.
+		content = cleanUserText(content)
+	}
 	return ingest.ParseResult{
 		Message: &ingest.RawMessage{
-			Role: role, Kind: kind, Content: blocks[0].Text,
+			Role: role, Kind: kind, Content: content,
 			Raw: raw, CreatedAt: timestamp,
 		},
 		Session: upd,
