@@ -19,7 +19,12 @@ SELECT c.id                                       AS chunk_id,
        s.agent,
        s.started_at,
        snippet(chunks_fts, 0, '[', ']', ' … ', 24) AS snippet,
-       chunks_fts.rank                             AS bm25
+       chunks_fts.rank                             AS bm25,
+       COALESCE((SELECT MIN(m.created_at) FROM messages m
+                 WHERE m.session_id = c.session_id
+                   AND m.seq BETWEEN c.first_seq AND c.last_seq),
+                s.started_at)
+                                                   AS chunk_at   -- when THIS turn happened; started_at is the session's start
   FROM chunks_fts
   JOIN chunks   c ON c.id = chunks_fts.rowid
   JOIN sessions s ON s.id = c.session_id
@@ -55,12 +60,18 @@ WITH kw AS (
      LIMIT 50
 ),
 sem AS (
+    -- KNN always returns its k nearest rows, however unrelated, so a query
+    -- with one true match would drag 49 strangers into the fusion. The outer
+    -- filter drops anything farther than :max_distance (cosine distance;
+    -- see search.MaxSemanticDistance) so only real semantic neighbours count.
     SELECT chunk_id,
            row_number() OVER (ORDER BY distance) AS r
-      FROM chunk_vectors
-     WHERE embedding MATCH :query_embedding       -- JSON array or float32 blob
-       AND k = 50
-       AND project_id = :project_id
+      FROM (SELECT chunk_id, distance
+              FROM chunk_vectors
+             WHERE embedding MATCH :query_embedding   -- JSON array or float32 blob
+               AND k = 50
+               AND project_id = :project_id)
+     WHERE distance <= :max_distance
 ),
 fused AS (
     SELECT chunk_id, SUM(1.0 / (60 + r)) AS score
@@ -73,7 +84,12 @@ SELECT f.chunk_id,
        s.agent,
        s.title,
        s.started_at,
-       substr(c.text, 1, 400) AS preview           -- summary first; full text on request
+       substr(c.text, 1, 400) AS preview,          -- summary first; full text on request
+       COALESCE((SELECT MIN(m.created_at) FROM messages m
+                 WHERE m.session_id = c.session_id
+                   AND m.seq BETWEEN c.first_seq AND c.last_seq),
+                s.started_at)
+                              AS chunk_at
   FROM fused f
   JOIN chunks   c ON c.id = f.chunk_id
   JOIN sessions s ON s.id = c.session_id
@@ -101,13 +117,16 @@ WITH kw AS (
      LIMIT 50
 ),
 sem AS (
+    -- Same distance floor as SearchHybrid; see the note there.
     SELECT chunk_id,
            row_number() OVER (ORDER BY distance) AS r
-      FROM chunk_vectors
-     WHERE embedding MATCH :query_embedding       -- JSON array or float32 blob
-       AND k = 50
-       AND project_id = :project_id
-       AND agent = :agent
+      FROM (SELECT chunk_id, distance
+              FROM chunk_vectors
+             WHERE embedding MATCH :query_embedding   -- JSON array or float32 blob
+               AND k = 50
+               AND project_id = :project_id
+               AND agent = :agent)
+     WHERE distance <= :max_distance
 ),
 fused AS (
     SELECT chunk_id, SUM(1.0 / (60 + r)) AS score
@@ -120,7 +139,12 @@ SELECT f.chunk_id,
        s.agent,
        s.title,
        s.started_at,
-       substr(c.text, 1, 400) AS preview
+       substr(c.text, 1, 400) AS preview,
+       COALESCE((SELECT MIN(m.created_at) FROM messages m
+                 WHERE m.session_id = c.session_id
+                   AND m.seq BETWEEN c.first_seq AND c.last_seq),
+                s.started_at)
+                              AS chunk_at
   FROM fused f
   JOIN chunks   c ON c.id = f.chunk_id
   JOIN sessions s ON s.id = c.session_id

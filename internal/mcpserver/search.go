@@ -20,7 +20,8 @@ type searchContextHit struct {
 	ChunkID   int64  `json:"chunk_id"`
 	SessionID string `json:"session_id"`
 	Agent     string `json:"agent"`
-	StartedAt string `json:"started_at"`
+	StartedAt string `json:"started_at"` // when the session began
+	At        string `json:"at"`         // when this hit's turn happened
 	Snippet   string `json:"snippet"`
 }
 
@@ -78,7 +79,7 @@ func (s *server) searchContext(ctx context.Context, _ *mcp.CallToolRequest, args
 	for i, r := range got.Results {
 		out.Results[i] = searchContextHit{
 			ChunkID: r.ChunkID, SessionID: r.SessionID, Agent: r.Agent,
-			StartedAt: r.StartedAt, Snippet: r.Snippet,
+			StartedAt: r.StartedAt, At: r.At, Snippet: r.Snippet,
 		}
 	}
 	return nil, out, nil

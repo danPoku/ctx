@@ -19,6 +19,10 @@ type KeywordResult struct {
 	StartedAt string
 	Snippet   string
 	BM25      float64
+	// At is when this chunk's turn happened (its first message's timestamp),
+	// falling back to the session start. StartedAt is the SESSION's start,
+	// which is the same for every chunk in a long session.
+	At string
 }
 
 // Keyword runs SearchKeyword: BM25-ranked full-text search over chunks,
@@ -48,7 +52,7 @@ func Keyword(db *sql.DB, query string, projectID int64, agent string, limit int)
 	var results []KeywordResult
 	for rows.Next() {
 		var r KeywordResult
-		if err := rows.Scan(&r.ChunkID, &r.SessionID, &r.Agent, &r.StartedAt, &r.Snippet, &r.BM25); err != nil {
+		if err := rows.Scan(&r.ChunkID, &r.SessionID, &r.Agent, &r.StartedAt, &r.Snippet, &r.BM25, &r.At); err != nil {
 			return nil, err
 		}
 		results = append(results, r)

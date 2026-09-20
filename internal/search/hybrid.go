@@ -20,7 +20,18 @@ type HybridResult struct {
 	Title     string
 	StartedAt string
 	Preview   string
+	At        string // when this chunk's turn happened; see KeywordResult.At
 }
+
+// MaxSemanticDistance is the farthest cosine distance (0 = identical, 2 =
+// opposite) at which a vector neighbour still counts as a semantic match.
+//
+// Calibrated on real ctx data with nomic-embed-text: exact and near-exact
+// matches sit at 0.14 to 0.30, genuinely on-topic paraphrases at 0.33 to
+// 0.47, and the BEST match for an off-topic query (a recipe, a revenue
+// forecast) at 0.56 to 0.60. 0.50 splits the last two groups. Recalibrate if
+// the embedding model changes; the corpus it was measured on was small.
+const MaxSemanticDistance = 0.50
 
 // Hybrid runs Reciprocal Rank Fusion of keyword (FTS) and semantic (vector)
 // search over chunks. It embeds query itself via client, so callers don't
@@ -46,6 +57,7 @@ func Hybrid(ctx context.Context, db *sql.DB, client embed.Embedder, query string
 		sql.Named("query", sanitizeFTS5Query(query)),
 		sql.Named("query_embedding", string(vecJSON)),
 		sql.Named("project_id", projectID),
+		sql.Named("max_distance", MaxSemanticDistance),
 		sql.Named("limit", limit),
 	}
 	if agent != "" {
@@ -67,7 +79,7 @@ func Hybrid(ctx context.Context, db *sql.DB, client embed.Embedder, query string
 	for rows.Next() {
 		var r HybridResult
 		var title sql.NullString
-		if err := rows.Scan(&r.ChunkID, &r.Score, &r.SessionID, &r.Agent, &title, &r.StartedAt, &r.Preview); err != nil {
+		if err := rows.Scan(&r.ChunkID, &r.Score, &r.SessionID, &r.Agent, &title, &r.StartedAt, &r.Preview, &r.At); err != nil {
 			return nil, err
 		}
 		r.Title = title.String

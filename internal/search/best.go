@@ -14,7 +14,8 @@ type Result struct {
 	ChunkID   int64
 	SessionID string
 	Agent     string
-	StartedAt string
+	StartedAt string // when the SESSION started
+	At        string // when this chunk's turn happened; use this for display
 	Snippet   string
 }
 
@@ -44,7 +45,7 @@ func Best(ctx context.Context, db *sql.DB, client embed.Embedder, query string, 
 		if err == nil {
 			out := make([]Result, len(hy))
 			for i, r := range hy {
-				out[i] = Result{ChunkID: r.ChunkID, SessionID: r.SessionID, Agent: r.Agent, StartedAt: r.StartedAt, Snippet: r.Preview}
+				out[i] = Result{ChunkID: r.ChunkID, SessionID: r.SessionID, Agent: r.Agent, StartedAt: r.StartedAt, At: r.At, Snippet: r.Preview}
 			}
 			return BestResult{Results: out, UsedHybrid: true}, nil
 		}
@@ -61,7 +62,7 @@ func Best(ctx context.Context, db *sql.DB, client embed.Embedder, query string, 
 func toResults(kw []KeywordResult) []Result {
 	out := make([]Result, len(kw))
 	for i, r := range kw {
-		out[i] = Result{ChunkID: r.ChunkID, SessionID: r.SessionID, Agent: r.Agent, StartedAt: r.StartedAt, Snippet: r.Snippet}
+		out[i] = Result{ChunkID: r.ChunkID, SessionID: r.SessionID, Agent: r.Agent, StartedAt: r.StartedAt, At: r.At, Snippet: r.Snippet}
 	}
 	return out
 }
