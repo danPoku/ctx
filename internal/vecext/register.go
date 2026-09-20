@@ -30,6 +30,7 @@
 package vecext
 
 // #cgo CFLAGS: -DSQLITE_CORE -I${SRCDIR}
+// #cgo LDFLAGS: -lm
 // #include "sqlite-vec.h"
 import "C"
 
