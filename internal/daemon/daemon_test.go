@@ -1,0 +1,170 @@
+package daemon_test
+
+import (
+	"context"
+	"database/sql"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/kojog/ctx/internal/daemon"
+	"github.com/kojog/ctx/internal/ingest"
+	"github.com/kojog/ctx/internal/ingest/claudecode"
+	"github.com/kojog/ctx/internal/store"
+)
+
+func openTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := store.Open(filepath.Join(t.TempDir(), "ctx.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := store.Migrate(db); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+// waitForSessionCount polls until sessions reaches want, or fails the test
+// after timeout — avoids a flat sleep long enough for the slowest possible
+// debounce+ingest cycle on every assertion.
+func waitForSessionCount(t *testing.T, db *sql.DB, want int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		var got int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&got); err != nil {
+			t.Fatalf("count sessions: %v", err)
+		}
+		if got >= want {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	var got int
+	db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&got)
+	t.Fatalf("timed out waiting for %d session(s), have %d after %v", want, got, timeout)
+}
+
+func waitForMessageCount(t *testing.T, db *sql.DB, want int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		var got int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&got); err != nil {
+			t.Fatalf("count messages: %v", err)
+		}
+		if got >= want {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	var got int
+	db.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&got)
+	t.Fatalf("timed out waiting for %d message(s), have %d after %v", want, got, timeout)
+}
+
+func sessionLine(sessionID, text, ts string) string {
+	return `{"type":"user","message":{"role":"user","content":"` + text + `"},"sessionId":"` + sessionID + `","cwd":"/home/dev/proj","timestamp":"` + ts + `"}` + "\n"
+}
+
+// TestRunIngestsExistingFilesOnStartup proves the initial catch-up pass:
+// a file that already existed before Run was ever called still gets
+// ingested, not just files that change afterward.
+func TestRunIngestsExistingFilesOnStartup(t *testing.T) {
+	db := openTestDB(t)
+	root := filepath.Join(t.TempDir(), "sessions")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "s1.jsonl"), []byte(sessionLine("s1", "hello", "2026-09-20T10:00:00Z")), 0644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sources := []daemon.Source{{Agent: "claude-code", Root: root, NewAdapter: func() ingest.Adapter { return claudecode.New() }}}
+
+	done := make(chan error, 1)
+	go func() { done <- daemon.Run(ctx, db, sources, time.Hour, 20*time.Millisecond) }()
+
+	waitForSessionCount(t, db, 1, 2*time.Second)
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Run returned %v, want nil after cancel", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after context cancellation")
+	}
+}
+
+// TestRunPicksUpNewFileAndNewDirectoryLive proves the fsnotify path: a
+// brand new session file appearing in a brand new subdirectory (the shape
+// Claude Code creates — one directory per project) gets watched and
+// ingested without any fallback poll, well within a short fallback
+// interval that hasn't fired yet.
+func TestRunPicksUpNewFileAndNewDirectoryLive(t *testing.T) {
+	db := openTestDB(t)
+	root := filepath.Join(t.TempDir(), "sessions")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sources := []daemon.Source{{Agent: "claude-code", Root: root, NewAdapter: func() ingest.Adapter { return claudecode.New() }}}
+
+	go daemon.Run(ctx, db, sources, time.Hour, 20*time.Millisecond)
+
+	// Give the watcher a moment to establish itself before creating things
+	// — a real race in any fsnotify-based tool, not just this test.
+	time.Sleep(100 * time.Millisecond)
+
+	newDir := filepath.Join(root, "new-project")
+	if err := os.MkdirAll(newDir, 0755); err != nil {
+		t.Fatalf("mkdir new project dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(newDir, "s1.jsonl"), []byte(sessionLine("s1", "live create", "2026-09-20T10:00:00Z")), 0644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	waitForSessionCount(t, db, 1, 3*time.Second)
+}
+
+// TestRunReIngestsAppendedContent proves a growing file (the normal case —
+// an agent appending to its own session log) gets re-ingested as new lines
+// land, debounced rather than re-run on every single write.
+func TestRunReIngestsAppendedContent(t *testing.T) {
+	db := openTestDB(t)
+	root := filepath.Join(t.TempDir(), "sessions")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	path := filepath.Join(root, "s1.jsonl")
+	if err := os.WriteFile(path, []byte(sessionLine("s1", "first", "2026-09-20T10:00:00Z")), 0644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sources := []daemon.Source{{Agent: "claude-code", Root: root, NewAdapter: func() ingest.Adapter { return claudecode.New() }}}
+
+	go daemon.Run(ctx, db, sources, time.Hour, 20*time.Millisecond)
+	waitForMessageCount(t, db, 1, 2*time.Second)
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatalf("open for append: %v", err)
+	}
+	if _, err := f.WriteString(sessionLine("s1", "second", "2026-09-20T10:00:01Z")); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	f.Close()
+
+	waitForMessageCount(t, db, 2, 2*time.Second)
+}

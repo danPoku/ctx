@@ -45,6 +45,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "ctx embed:", err)
 			os.Exit(1)
 		}
+	case "daemon":
+		if err := runDaemon(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "ctx daemon:", err)
+			os.Exit(1)
+		}
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -62,7 +67,8 @@ commands:
   ingest [--path FILE] [--agent A]    ingest sessions (default: scan Claude Code + Codex session dirs)
   embed [--batch N]                   embed pending chunks via a local Ollama for semantic search
   search <query> [--agent A] [--limit N]   keyword+semantic search over ingested sessions in this project
-  mcp                                 serve ctx's tools over MCP (stdio) for an agent to call`)
+  mcp                                 serve ctx's tools over MCP (stdio) for an agent to call
+  daemon [--fallback-interval D]      watch session dirs continuously and ingest live (Ctrl+C to stop)`)
 }
 
 // reorderFlagsFirst hoists any token in args matching a name in
