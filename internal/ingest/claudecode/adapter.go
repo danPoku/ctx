@@ -63,9 +63,9 @@ type contentBlock struct {
 	Thinking  string          `json:"thinking"`
 	ID        string          `json:"id"`          // tool_use
 	Name      string          `json:"name"`        // tool_use
-	Input     json.RawMessage `json:"input"`        // tool_use
+	Input     json.RawMessage `json:"input"`       // tool_use
 	ToolUseID string          `json:"tool_use_id"` // tool_result
-	Content   json.RawMessage `json:"content"`      // tool_result: string, OR an array of {type,text} sub-blocks
+	Content   json.RawMessage `json:"content"`     // tool_result: string, OR an array of {type,text} sub-blocks
 }
 
 func (a Adapter) ParseLine(raw []byte) (ingest.ParseResult, error) {

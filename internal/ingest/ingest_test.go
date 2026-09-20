@@ -96,11 +96,11 @@ func TestRunIngestsSessionAndChunksOnlySettledTurns(t *testing.T) {
 	if firstSeq != 0 || lastSeq != 4 {
 		t.Errorf("chunk span = [%d,%d], want [0,4]", firstSeq, lastSeq)
 	}
-	if !strings.Contains(text,"WAL mode") || !strings.Contains(text,"_journal_mode=WAL") {
+	if !strings.Contains(text, "WAL mode") || !strings.Contains(text, "_journal_mode=WAL") {
 		t.Errorf("chunk text = %q, want it to contain both the question and the answer", text)
 	}
 	// Tool noise must be trimmed out of the indexed text.
-	if strings.Contains(text,"toolu_1") || strings.Contains(text,"Read") {
+	if strings.Contains(text, "toolu_1") || strings.Contains(text, "Read") {
 		t.Errorf("chunk text = %q, tool call/result leaked into the index", text)
 	}
 }

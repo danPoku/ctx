@@ -12,10 +12,10 @@ import (
 func TestNormalizeGitRemote(t *testing.T) {
 	cases := map[string]string{
 		"git@github.com:dan/forex-model.git":       "github.com/dan/forex-model",
-		"https://github.com/Dan/Forex-Model.git":    "github.com/dan/forex-model",
-		"https://github.com/dan/forex-model":        "github.com/dan/forex-model",
-		"ssh://git@github.com/dan/forex-model.git":  "github.com/dan/forex-model",
-		"git@gitlab.internal.corp:team/repo.git":    "gitlab.internal.corp/team/repo",
+		"https://github.com/Dan/Forex-Model.git":   "github.com/dan/forex-model",
+		"https://github.com/dan/forex-model":       "github.com/dan/forex-model",
+		"ssh://git@github.com/dan/forex-model.git": "github.com/dan/forex-model",
+		"git@gitlab.internal.corp:team/repo.git":   "gitlab.internal.corp/team/repo",
 	}
 	for input, want := range cases {
 		if got := normalizeGitRemote(input); got != want {

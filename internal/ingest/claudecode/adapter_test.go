@@ -180,23 +180,23 @@ func TestFileTouchExtraction(t *testing.T) {
 	a := New()
 
 	cases := []struct {
-		name     string
-		line     string
+		name      string
+		line      string
 		wantTouch *ingest.FileTouch
 	}{
 		{
-			name: "Read sets a FileTouch",
-			line: `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/home/dev/proj/main.go"}}]},"sessionId":"s1","timestamp":"2026-09-20T10:00:00Z"}`,
+			name:      "Read sets a FileTouch",
+			line:      `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/home/dev/proj/main.go"}}]},"sessionId":"s1","timestamp":"2026-09-20T10:00:00Z"}`,
 			wantTouch: &ingest.FileTouch{Path: "/home/dev/proj/main.go", Action: "read"},
 		},
 		{
-			name: "Edit sets a FileTouch",
-			line: `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Edit","input":{"file_path":"/home/dev/proj/main.go","old_string":"a","new_string":"b"}}]},"sessionId":"s1","timestamp":"2026-09-20T10:00:01Z"}`,
+			name:      "Edit sets a FileTouch",
+			line:      `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Edit","input":{"file_path":"/home/dev/proj/main.go","old_string":"a","new_string":"b"}}]},"sessionId":"s1","timestamp":"2026-09-20T10:00:01Z"}`,
 			wantTouch: &ingest.FileTouch{Path: "/home/dev/proj/main.go", Action: "edit"},
 		},
 		{
-			name: "Write sets a FileTouch",
-			line: `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t3","name":"Write","input":{"file_path":"/home/dev/proj/new.go","content":"package main"}}]},"sessionId":"s1","timestamp":"2026-09-20T10:00:02Z"}`,
+			name:      "Write sets a FileTouch",
+			line:      `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t3","name":"Write","input":{"file_path":"/home/dev/proj/new.go","content":"package main"}}]},"sessionId":"s1","timestamp":"2026-09-20T10:00:02Z"}`,
 			wantTouch: &ingest.FileTouch{Path: "/home/dev/proj/new.go", Action: "edit"},
 		},
 		{

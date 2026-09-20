@@ -64,7 +64,7 @@ func (s *server) registerSearch(srv *mcp.Server) {
 	}, s.searchContext)
 
 	mcp.AddTool(srv, &mcp.Tool{
-		Name: "search_notes",
+		Name:        "search_notes",
 		Description: "Search notes — decisions, gotchas, conventions, and todos deliberately recorded with save_note. Distinct from search_context: notes are curated policy an agent chose to write down, not raw transcript.",
 	}, s.searchNotes)
 }

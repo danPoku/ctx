@@ -93,7 +93,7 @@ func (s *server) registerSessions(srv *mcp.Server) {
 	}, s.recentSessions)
 
 	mcp.AddTool(srv, &mcp.Tool{
-		Name: "get_session",
+		Name:        "get_session",
 		Description: "Read a session's messages in order, paged by sequence number. Capped per call — check `truncated` and use `next_from_seq` to keep paging through a long session.",
 	}, s.getSession)
 

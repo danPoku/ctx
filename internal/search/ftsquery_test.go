@@ -56,7 +56,7 @@ func TestSanitizeFTS5QueryFixesRealBreakage(t *testing.T) {
 		"non-negotiable": `"non-negotiable"`,
 		"foo:bar":        `"foo:bar"`,
 		"a-b-c-d":        `"a-b-c-d"`,
-		`C:\Users\dev`: `"C:\Users\dev"`,
+		`C:\Users\dev`:   `"C:\Users\dev"`,
 		"sqlite-vec cgo": `"sqlite-vec" cgo`,
 	}
 	for input, want := range cases {

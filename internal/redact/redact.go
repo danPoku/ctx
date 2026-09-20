@@ -21,15 +21,15 @@ const placeholder = "[REDACTED]"
 // These run first so the generic fallback below doesn't need to duplicate
 // them.
 var namedPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`AKIA[0-9A-Z]{16}`),                                        // AWS access key id
-	regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{36,255}`),                           // GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_)
-	regexp.MustCompile(`xox[baprs]-[A-Za-z0-9-]{10,72}`),                          // Slack tokens
-	regexp.MustCompile(`AIza[0-9A-Za-z_\-]{35}`),                                  // Google API key
-	regexp.MustCompile(`(sk|rk)_live_[0-9A-Za-z]{16,}`),                           // Stripe live keys
-	regexp.MustCompile(`sk-(ant-|proj-)?[A-Za-z0-9_\-]{20,}`),                     // OpenAI/Anthropic-style API keys
-	regexp.MustCompile(`eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+`),    // JWT
+	regexp.MustCompile(`AKIA[0-9A-Z]{16}`),                                     // AWS access key id
+	regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{36,255}`),                        // GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_)
+	regexp.MustCompile(`xox[baprs]-[A-Za-z0-9-]{10,72}`),                       // Slack tokens
+	regexp.MustCompile(`AIza[0-9A-Za-z_\-]{35}`),                               // Google API key
+	regexp.MustCompile(`(sk|rk)_live_[0-9A-Za-z]{16,}`),                        // Stripe live keys
+	regexp.MustCompile(`sk-(ant-|proj-)?[A-Za-z0-9_\-]{20,}`),                  // OpenAI/Anthropic-style API keys
+	regexp.MustCompile(`eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+`), // JWT
 	regexp.MustCompile(`(?is)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----`),
-	regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9._\-]{10,}`),                       // Authorization: Bearer <token>
+	regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9._\-]{10,}`), // Authorization: Bearer <token>
 }
 
 // envLine catches `KEY=value` assignments shaped like a line out of a .env
