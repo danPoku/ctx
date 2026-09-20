@@ -179,7 +179,8 @@ func processLine(db *sql.DB, adapter Adapter, line []byte, toolNames map[string]
 	}
 
 	sessionID := adapter.Agent() + ":" + res.Session.NativeID
-	if err := upsertSession(db, sessionID, adapter.Agent(), res.Session, res.Message); err != nil {
+	projectID, err := upsertSession(db, sessionID, adapter.Agent(), res.Session, res.Message)
+	if err != nil {
 		return sessionID, err
 	}
 
@@ -218,8 +219,47 @@ func processLine(db *sql.DB, adapter Adapter, line []byte, toolNames map[string]
 	}
 	sessionSeq[sessionID] = seq + 1
 
-	_, err = db.Exec(`INSERT OR IGNORE INTO messages(session_id, seq, role, kind, tool_name, content, created_at, raw)
+	res2, err := db.Exec(`INSERT OR IGNORE INTO messages(session_id, seq, role, kind, tool_name, content, created_at, raw)
 	                   VALUES (?,?,?,?,?,?,?,?)`,
 		sessionID, seq, msg.Role, msg.Kind, nullIfEmpty(msg.ToolName), msg.Content, nullIfEmpty(msg.CreatedAt), redactedRaw)
+	if err != nil {
+		return sessionID, err
+	}
+
+	if msg.FileTouch == nil {
+		return sessionID, nil
+	}
+	// INSERT OR IGNORE means a re-ingest replaying an already-seen seq
+	// inserts no row — RowsAffected distinguishes that from a genuine new
+	// message, so a re-run never double-records the same file touch.
+	// (last_insert_rowid() is unreliable here for the same reason: SQLite
+	// leaves it untouched when INSERT OR IGNORE inserts nothing.)
+	affected, err := res2.RowsAffected()
+	if err != nil || affected == 0 {
+		return sessionID, err
+	}
+	messageID, err := res2.LastInsertId()
+	if err != nil {
+		return sessionID, err
+	}
+	path := msg.FileTouch.Path
+	if res.Session.CWD != "" {
+		path = relativizePath(res.Session.CWD, path)
+	}
+	_, err = db.Exec(`INSERT INTO file_touches(session_id, message_id, project_id, path, action, created_at)
+	                   VALUES (?,?,?,?,?,?)`,
+		sessionID, messageID, projectID, path, msg.FileTouch.Action, nullIfEmpty(msg.CreatedAt))
 	return sessionID, err
+}
+
+// relativizePath reports path relative to cwd when path is inside cwd,
+// falling back to path unchanged (e.g. absolute, but outside the project —
+// a config file elsewhere, or a symlinked path filepath.Rel can't resolve
+// cleanly) rather than fail the whole ingest over it.
+func relativizePath(cwd, path string) string {
+	rel, err := filepath.Rel(cwd, path)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return path
+	}
+	return rel
 }

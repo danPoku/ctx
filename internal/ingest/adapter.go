@@ -19,6 +19,23 @@ type RawMessage struct {
 	Content   string // cleaned text, redacted before insert
 	Raw       []byte // the original log line, redacted before insert
 	CreatedAt string // ISO-8601 UTC, from the log line's own timestamp
+
+	// FileTouch is set when this message is a tool_call the adapter
+	// recognizes as touching a file (an edit, a read, ...), so the driver
+	// can also record it in file_touches. Left nil for everything else —
+	// most tool calls (a shell command, an unrecognized tool) don't name a
+	// file in a structured way an adapter can reliably extract.
+	FileTouch *FileTouch
+}
+
+// FileTouch is "which file did this tool call touch, and how" — extracted
+// by an adapter from a tool_call's structured input, not guessed from
+// message text. Path may be absolute (as the tool reported it); the driver
+// relativizes it against the session's cwd before storing it, since
+// file_touches.path is project-relative.
+type FileTouch struct {
+	Path   string
+	Action string // 'read' | 'edit' | 'create' | 'delete' | 'rename'
 }
 
 // SessionUpdate carries session-level fields discovered on a log line that

@@ -9,7 +9,6 @@ import (
 	"github.com/kojog/ctx/internal/ingest"
 	"github.com/kojog/ctx/internal/ingest/claudecode"
 	"github.com/kojog/ctx/internal/ingest/codex"
-	"github.com/kojog/ctx/internal/store"
 )
 
 // agentSource pairs an agent with where its session logs live and how to
@@ -46,14 +45,11 @@ func runIngest(args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve home directory: %w", err)
 	}
-	db, err := store.Open(filepath.Join(home, ".ctx", "ctx.db"))
+	db, _, err := openStore()
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	if _, err := store.Migrate(db); err != nil {
-		return err
-	}
 
 	if *path != "" {
 		src, err := findAgentSource(*agent)

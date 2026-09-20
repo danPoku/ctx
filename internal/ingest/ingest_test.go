@@ -248,3 +248,71 @@ func TestRunCodexSessionChunksOnlySettledTurns(t *testing.T) {
 		t.Errorf("chunk text = %q, tool call leaked into the index", text)
 	}
 }
+
+// TestRunRecordsFileTouches proves the driver actually writes file_touches
+// rows end to end (project_id resolved, path relativized against the
+// session's cwd, action mapped correctly) and that re-ingesting the same
+// bytes doesn't duplicate them — the INSERT OR IGNORE + RowsAffected guard
+// in processLine is what's under test here, not just the adapter's parsing.
+func TestRunRecordsFileTouches(t *testing.T) {
+	db := openTestDB(t)
+
+	content := `{"type":"user","message":{"role":"user","content":"read and edit main.go"},"sessionId":"sess-ft","cwd":"/home/dev/proj","timestamp":"2026-09-20T10:00:00Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/home/dev/proj/main.go"}}]},"sessionId":"sess-ft","cwd":"/home/dev/proj","timestamp":"2026-09-20T10:00:01Z"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"package main"}]},"sessionId":"sess-ft","cwd":"/home/dev/proj","timestamp":"2026-09-20T10:00:02Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Edit","input":{"file_path":"/home/dev/proj/main.go","old_string":"a","new_string":"b"}}]},"sessionId":"sess-ft","cwd":"/home/dev/proj","timestamp":"2026-09-20T10:00:03Z"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","content":"ok"}]},"sessionId":"sess-ft","cwd":"/home/dev/proj","timestamp":"2026-09-20T10:00:04Z"}
+`
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	adapter := claudecode.New()
+	if err := ingest.Run(db, adapter, path); err != nil {
+		t.Fatalf("first Run: %v", err)
+	}
+
+	rows, err := db.Query(`SELECT path, action, project_id FROM file_touches ORDER BY id`)
+	if err != nil {
+		t.Fatalf("query file_touches: %v", err)
+	}
+	type touch struct {
+		path, action string
+		projectID    sql.NullInt64
+	}
+	var got []touch
+	for rows.Next() {
+		var tr touch
+		if err := rows.Scan(&tr.path, &tr.action, &tr.projectID); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got = append(got, tr)
+	}
+	rows.Close()
+
+	want := []touch{{path: "main.go", action: "read"}, {path: "main.go", action: "edit"}}
+	if len(got) != len(want) {
+		t.Fatalf("file_touches = %+v, want %d rows", got, len(want))
+	}
+	for i, w := range want {
+		if got[i].path != w.path || got[i].action != w.action {
+			t.Errorf("file_touches[%d] = {path:%q action:%q}, want {path:%q action:%q}", i, got[i].path, got[i].action, w.path, w.action)
+		}
+		if !got[i].projectID.Valid {
+			t.Errorf("file_touches[%d].project_id is NULL, want it resolved from cwd", i)
+		}
+	}
+
+	// Re-ingesting the same bytes must not duplicate the touches.
+	if err := ingest.Run(db, adapter, path); err != nil {
+		t.Fatalf("second Run: %v", err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM file_touches`).Scan(&count); err != nil {
+		t.Fatalf("count file_touches: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("file_touches after re-run = %d, want 2 (no duplicates)", count)
+	}
+}

@@ -167,3 +167,63 @@ func TestParseLineAgainstFixture(t *testing.T) {
 
 	var _ ingest.Adapter = a // Adapter satisfies the driver's interface
 }
+
+// TestFileTouchExtraction pins the "file_path" field name down against what
+// was actually observed in this project's own real Claude Code session file
+// for Read/Write/Edit (see the fileTouchAction doc comment) — a synthetic
+// fixture using a made-up key like "path" would pass without ever proving
+// extraction works against the real shape.
+func TestFileTouchExtraction(t *testing.T) {
+	a := New()
+
+	cases := []struct {
+		name     string
+		line     string
+		wantTouch *ingest.FileTouch
+	}{
+		{
+			name: "Read sets a FileTouch",
+			line: `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/home/dev/proj/main.go"}}]},"sessionId":"s1","timestamp":"2026-09-20T10:00:00Z"}`,
+			wantTouch: &ingest.FileTouch{Path: "/home/dev/proj/main.go", Action: "read"},
+		},
+		{
+			name: "Edit sets a FileTouch",
+			line: `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Edit","input":{"file_path":"/home/dev/proj/main.go","old_string":"a","new_string":"b"}}]},"sessionId":"s1","timestamp":"2026-09-20T10:00:01Z"}`,
+			wantTouch: &ingest.FileTouch{Path: "/home/dev/proj/main.go", Action: "edit"},
+		},
+		{
+			name: "Write sets a FileTouch",
+			line: `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t3","name":"Write","input":{"file_path":"/home/dev/proj/new.go","content":"package main"}}]},"sessionId":"s1","timestamp":"2026-09-20T10:00:02Z"}`,
+			wantTouch: &ingest.FileTouch{Path: "/home/dev/proj/new.go", Action: "edit"},
+		},
+		{
+			name:      "Bash does not set a FileTouch — no structured path to extract",
+			line:      `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t4","name":"Bash","input":{"command":"cat main.go"}}]},"sessionId":"s1","timestamp":"2026-09-20T10:00:03Z"}`,
+			wantTouch: nil,
+		},
+		{
+			name:      "NotebookEdit is deliberately unhandled (unconfirmed field name)",
+			line:      `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t5","name":"NotebookEdit","input":{"notebook_path":"/home/dev/proj/nb.ipynb"}}]},"sessionId":"s1","timestamp":"2026-09-20T10:00:04Z"}`,
+			wantTouch: nil,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			res, err := a.ParseLine([]byte(c.line))
+			if err != nil {
+				t.Fatalf("ParseLine: %v", err)
+			}
+			if res.Message == nil {
+				t.Fatalf("Message = nil")
+			}
+			got := res.Message.FileTouch
+			if (got == nil) != (c.wantTouch == nil) {
+				t.Fatalf("FileTouch = %+v, want %+v", got, c.wantTouch)
+			}
+			if got != nil && (*got != *c.wantTouch) {
+				t.Errorf("FileTouch = %+v, want %+v", *got, *c.wantTouch)
+			}
+		})
+	}
+}

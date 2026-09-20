@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/kojog/ctx/internal/search"
@@ -28,18 +27,11 @@ func runSearch(args []string) error {
 	}
 	query := strings.Join(fs.Args(), " ")
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("resolve home directory: %w", err)
-	}
-	db, err := store.Open(filepath.Join(home, ".ctx", "ctx.db"))
+	db, _, err := openStore()
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	if _, err := store.Migrate(db); err != nil {
-		return err
-	}
 
 	cwd, err := os.Getwd()
 	if err != nil {

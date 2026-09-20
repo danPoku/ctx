@@ -4,6 +4,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,6 +35,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "ctx search:", err)
 			os.Exit(1)
 		}
+	case "mcp":
+		if err := runMCP(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "ctx mcp:", err)
+			os.Exit(1)
+		}
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -49,7 +55,8 @@ func usage() {
 commands:
   init                                create ~/.ctx and its database
   ingest [--path FILE] [--agent A]    ingest sessions (default: scan Claude Code + Codex session dirs)
-  search <query> [--agent A] [--limit N]   keyword search over ingested sessions in this project`)
+  search <query> [--agent A] [--limit N]   keyword search over ingested sessions in this project
+  mcp                                 serve ctx's tools over MCP (stdio) for an agent to call`)
 }
 
 // reorderFlagsFirst hoists any token in args matching a name in
@@ -78,33 +85,48 @@ func reorderFlagsFirst(args []string, flagsWithValue map[string]bool) []string {
 	return append(flags, positional...)
 }
 
-func runInit() error {
+// openStore resolves ~/.ctx, creates and secures it if it doesn't already
+// exist, and returns an open, migrated database. Every subcommand that
+// touches the store goes through this — not just `ctx init` — so a fresh
+// machine doesn't require remembering to run `ctx init` before anything
+// else works. This is also what a locally-registered MCP server relies on:
+// an agent's config points straight at `ctx mcp` with no setup step of its
+// own, so `ctx mcp` on a machine that never ran `ctx init` needs to just
+// work, not fail with "no such file or directory".
+func openStore() (*sql.DB, store.MigrateResult, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("resolve home directory: %w", err)
+		return nil, store.MigrateResult{}, fmt.Errorf("resolve home directory: %w", err)
 	}
 	dir := filepath.Join(home, ".ctx")
 
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("create %s: %w", dir, err)
+		return nil, store.MigrateResult{}, fmt.Errorf("create %s: %w", dir, err)
 	}
 	if err := secureDir(dir); err != nil {
-		fmt.Fprintf(os.Stderr, "ctx init: warning: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ctx: warning: %v\n", err)
 	}
 
-	dbPath := filepath.Join(dir, "ctx.db")
-	db, err := store.Open(dbPath)
+	db, err := store.Open(filepath.Join(dir, "ctx.db"))
+	if err != nil {
+		return nil, store.MigrateResult{}, err
+	}
+	result, err := store.Migrate(db)
+	if err != nil {
+		db.Close()
+		return nil, store.MigrateResult{}, err
+	}
+	return db, result, nil
+}
+
+func runInit() error {
+	db, result, err := openStore()
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
-	result, err := store.Migrate(db)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("initialized %s\n", dbPath)
+	fmt.Println("initialized ~/.ctx/ctx.db")
 	if !result.VectorsLoaded {
 		fmt.Fprintf(os.Stderr, "ctx init: warning: semantic search unavailable, sqlite-vec did not load: %v\n", result.VectorsErr)
 	}

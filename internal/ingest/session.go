@@ -11,11 +11,15 @@ import (
 // msg is the conversational message this update rode in on, if any — used
 // purely to seed the title fallback ("first user prompt, trimmed") the
 // first time a session is created with no agent-provided title yet.
-func upsertSession(db *sql.DB, sessionID, agent string, upd SessionUpdate, msg *RawMessage) error {
-	var exists bool
-	err := db.QueryRow(`SELECT 1 FROM sessions WHERE id = ?`, sessionID).Scan(&exists)
+//
+// It returns the session's project_id (nil if unresolved) so callers that
+// need it — recording a file_touches row alongside a tool_call message —
+// don't have to re-query it themselves on every message.
+func upsertSession(db *sql.DB, sessionID, agent string, upd SessionUpdate, msg *RawMessage) (any, error) {
+	var projectID sql.NullInt64
+	err := db.QueryRow(`SELECT project_id FROM sessions WHERE id = ?`, sessionID).Scan(&projectID)
 	if err != nil && err != sql.ErrNoRows {
-		return err
+		return nil, err
 	}
 	if err == nil {
 		_, err := db.Exec(`UPDATE sessions SET
@@ -26,19 +30,19 @@ func upsertSession(db *sql.DB, sessionID, agent string, upd SessionUpdate, msg *
 		                       ended_at   = CASE WHEN ? > COALESCE(ended_at, '') THEN ? ELSE ended_at END
 		                     WHERE id = ?`,
 			upd.CWD, upd.GitBranch, upd.Model, upd.Title, upd.Timestamp, upd.Timestamp, sessionID)
-		return err
+		return nullInt64ToAny(projectID), err
 	}
 
 	// project_id stays NULL if we've never seen a cwd for this session —
 	// shouldn't happen with real Claude Code logs, but resolving "" would
 	// otherwise create a bogus project named ".".
-	var projectID any
+	var newProjectID any
 	if upd.CWD != "" {
 		id, err := store.ResolveProject(db, upd.CWD)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		projectID = id
+		newProjectID = id
 	}
 
 	title := upd.Title
@@ -48,10 +52,17 @@ func upsertSession(db *sql.DB, sessionID, agent string, upd SessionUpdate, msg *
 
 	_, err = db.Exec(`INSERT INTO sessions(id, agent, native_id, project_id, cwd, git_branch, model, started_at, ended_at, title)
 	                   VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		sessionID, agent, upd.NativeID, projectID,
+		sessionID, agent, upd.NativeID, newProjectID,
 		nullIfEmpty(upd.CWD), nullIfEmpty(upd.GitBranch), nullIfEmpty(upd.Model),
 		upd.Timestamp, upd.Timestamp, nullIfEmpty(title))
-	return err
+	return newProjectID, err
+}
+
+func nullInt64ToAny(n sql.NullInt64) any {
+	if !n.Valid {
+		return nil
+	}
+	return n.Int64
 }
 
 func truncate(s string, n int) string {

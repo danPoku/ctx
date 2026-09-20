@@ -150,6 +150,7 @@ func (a Adapter) parseConversational(l line, raw []byte) (ingest.ParseResult, er
 		msg.Role, msg.Kind = l.Message.Role, "tool_call"
 		msg.ToolName, msg.ToolUseID = b.Name, b.ID
 		msg.Content = string(b.Input)
+		msg.FileTouch = fileTouchFor(b.Name, b.Input)
 	case "tool_result":
 		// A tool result is logged under role=user in the raw format (it's
 		// how the Anthropic API represents "continue the conversation with
@@ -163,6 +164,40 @@ func (a Adapter) parseConversational(l line, raw []byte) (ingest.ParseResult, er
 		return ingest.ParseResult{Skip: true}, nil
 	}
 	return ingest.ParseResult{Message: msg, Session: upd}, nil
+}
+
+// fileTouchAction maps a tool name to file_touches.action. Confirmed against
+// this project's own real session file for Read/Write/Edit, which all key
+// their target path as "file_path"; MultiEdit is assumed to share Edit's
+// shape (same editing tool family) but hasn't been seen directly. Write
+// can't be told apart from "create" vs. "overwrite an existing file" just
+// from the tool call — Claude Code always sends the full file content
+// either way — so it's mapped to the more conservative 'edit' rather than
+// asserting 'create'. NotebookEdit is deliberately NOT handled: its path
+// field name hasn't been confirmed from a real sample and guessing wrong
+// would silently record garbage in file_touches.
+var fileTouchAction = map[string]string{
+	"Read":      "read",
+	"Edit":      "edit",
+	"MultiEdit": "edit",
+	"Write":     "edit",
+}
+
+// fileTouchFor extracts a FileTouch from a recognized file-editing tool's
+// JSON input, or returns nil for anything else (most tools, like Bash,
+// don't name a file in a structured way this can reliably pull out).
+func fileTouchFor(toolName string, input json.RawMessage) *ingest.FileTouch {
+	action, ok := fileTouchAction[toolName]
+	if !ok {
+		return nil
+	}
+	var args struct {
+		FilePath string `json:"file_path"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil || args.FilePath == "" {
+		return nil
+	}
+	return &ingest.FileTouch{Path: args.FilePath, Action: action}
 }
 
 // flattenToolResultContent handles tool_result's content being either a

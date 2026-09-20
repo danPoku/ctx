@@ -5,6 +5,7 @@ package search
 
 import (
 	"database/sql"
+	"encoding/json"
 
 	"github.com/kojog/ctx/internal/store"
 	"github.com/kojog/ctx/queries"
@@ -50,6 +51,53 @@ func Keyword(db *sql.DB, query string, projectID int64, agent string, limit int)
 		if err := rows.Scan(&r.ChunkID, &r.SessionID, &r.Agent, &r.StartedAt, &r.Snippet, &r.BM25); err != nil {
 			return nil, err
 		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+// NoteResult is one row of SearchNotes's result set.
+type NoteResult struct {
+	ID        int64
+	Kind      string
+	Title     string
+	Body      string
+	Tags      []string
+	Agent     string
+	CreatedAt string
+}
+
+// Notes runs SearchNotes: keyword search over live (non-superseded) notes,
+// scoped to a project plus any global notes (project_id IS NULL).
+func Notes(db *sql.DB, query string, projectID int64, limit int) ([]NoteResult, error) {
+	sqlText, err := store.LoadQuery(queries.FS, "retrieval.sql", "SearchNotes")
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := db.Query(sqlText,
+		sql.Named("query", query),
+		sql.Named("project_id", projectID),
+		sql.Named("limit", limit),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []NoteResult
+	for rows.Next() {
+		var r NoteResult
+		var tagsJSON string
+		var agent sql.NullString
+		if err := rows.Scan(&r.ID, &r.Kind, &r.Title, &r.Body, &tagsJSON, &agent, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		r.Agent = agent.String
+		// tags is CHECKed as a JSON array in the schema, so this can only
+		// fail if the column itself is somehow malformed — degrade to an
+		// empty list rather than fail the whole search over one bad row.
+		_ = json.Unmarshal([]byte(tagsJSON), &r.Tags)
 		results = append(results, r)
 	}
 	return results, rows.Err()
