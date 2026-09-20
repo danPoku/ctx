@@ -1,3 +1,6 @@
+// Copyright 2026 Dan Gyinaye Poku
+// SPDX-License-Identifier: Apache-2.0
+
 // Package ingest is the agent-agnostic ingest driver: byte-offset
 // bookkeeping per source file, session upsert, message insertion, and
 // chunking. It knows nothing about any particular agent's log format — that

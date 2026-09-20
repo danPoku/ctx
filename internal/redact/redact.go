@@ -1,3 +1,6 @@
+// Copyright 2026 Dan Gyinaye Poku
+// SPDX-License-Identifier: Apache-2.0
+
 // Package redact scrubs secrets out of text before it's written to the
 // database. Tool outputs routinely contain API keys (a Bash line that did
 // `cat .env`), and a tool call's own input can contain one too (an agent

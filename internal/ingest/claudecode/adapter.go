@@ -1,3 +1,6 @@
+// Copyright 2026 Dan Gyinaye Poku
+// SPDX-License-Identifier: Apache-2.0
+
 // Package claudecode adapts Claude Code's session JSONL format (one JSON
 // object per line under ~/.claude/projects/<sanitized-cwd>/<session-id>.jsonl)
 // into the shapes internal/ingest knows how to store.

@@ -1,3 +1,6 @@
+// Copyright 2026 Dan Gyinaye Poku
+// SPDX-License-Identifier: Apache-2.0
+
 // Command ctx is the single binary for the local multi-agent context store:
 // ingesting agent sessions, indexing them, and serving them back over MCP
 // and the CLI.

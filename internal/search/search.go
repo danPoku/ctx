@@ -1,3 +1,6 @@
+// Copyright 2026 Dan Gyinaye Poku
+// SPDX-License-Identifier: Apache-2.0
+
 // Package search runs the retrieval queries defined in queries/retrieval.sql
 // against the store. Milestone 2 only wires up keyword (FTS) search;
 // SearchHybrid needs the embedding worker (milestone 5).

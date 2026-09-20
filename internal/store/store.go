@@ -1,3 +1,6 @@
+// Copyright 2026 Dan Gyinaye Poku
+// SPDX-License-Identifier: Apache-2.0
+
 // Package store manages the ctx SQLite database: opening it with the
 // connection pragmas every ctx component depends on, and applying the
 // embedded schema migrations.

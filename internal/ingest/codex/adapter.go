@@ -1,3 +1,6 @@
+// Copyright 2026 Dan Gyinaye Poku
+// SPDX-License-Identifier: Apache-2.0
+
 // Package codex adapts Codex CLI's rollout JSONL format (one JSON object
 // per line under ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl) into the
 // shapes internal/ingest knows how to store.

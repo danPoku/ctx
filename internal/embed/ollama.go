@@ -1,3 +1,6 @@
+// Copyright 2026 Dan Gyinaye Poku
+// SPDX-License-Identifier: Apache-2.0
+
 // Package embed generates and stores chunk embeddings for semantic search.
 // Embeddings are produced locally via Ollama — code never leaves the
 // machine, matching CLAUDE.md's non-negotiable on where model calls happen.

@@ -1,3 +1,6 @@
+// Copyright 2026 Dan Gyinaye Poku
+// SPDX-License-Identifier: Apache-2.0
+
 // Package queries embeds the named SQL query files (sqlc-format:
 // "-- name: X :many" sections) so the binary is self-contained and the .sql
 // text itself — not a hand-copied Go duplicate of it — is what actually

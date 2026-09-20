@@ -1,3 +1,6 @@
+// Copyright 2026 Dan Gyinaye Poku
+// SPDX-License-Identifier: Apache-2.0
+
 // Package vecext makes SQLite's vec0 virtual table module (from
 // github.com/asg017/sqlite-vec) available to mattn/go-sqlite3 connections.
 //

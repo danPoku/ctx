@@ -1,3 +1,6 @@
+// Copyright 2026 Dan Gyinaye Poku
+// SPDX-License-Identifier: Apache-2.0
+
 // Package mcpserver exposes ctx's retrieval and note-taking tools over MCP,
 // so an agent can pull its own (or another agent's) past context mid-session
 // instead of re-deriving it. Every tool response is a summary or a capped
