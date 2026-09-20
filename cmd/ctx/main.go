@@ -40,6 +40,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "ctx mcp:", err)
 			os.Exit(1)
 		}
+	case "embed":
+		if err := runEmbed(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "ctx embed:", err)
+			os.Exit(1)
+		}
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -55,7 +60,8 @@ func usage() {
 commands:
   init                                create ~/.ctx and its database
   ingest [--path FILE] [--agent A]    ingest sessions (default: scan Claude Code + Codex session dirs)
-  search <query> [--agent A] [--limit N]   keyword search over ingested sessions in this project
+  embed [--batch N]                   embed pending chunks via a local Ollama for semantic search
+  search <query> [--agent A] [--limit N]   keyword+semantic search over ingested sessions in this project
   mcp                                 serve ctx's tools over MCP (stdio) for an agent to call`)
 }
 

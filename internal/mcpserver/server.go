@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/kojog/ctx/internal/embed"
 	"github.com/kojog/ctx/internal/store"
 )
 
@@ -20,8 +21,9 @@ import (
 // agent from within the project it's working on, so the server's own
 // working directory IS the project.
 type server struct {
-	db        *sql.DB
-	projectID int64
+	db          *sql.DB
+	projectID   int64
+	embedClient embed.Embedder
 }
 
 // New builds the ctx MCP server and registers every tool. cwd is the
@@ -31,7 +33,10 @@ func New(db *sql.DB, cwd string) (*mcp.Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve project for %s: %w", cwd, err)
 	}
-	s := &server{db: db, projectID: projectID}
+	s := &server{
+		db: db, projectID: projectID,
+		embedClient: embed.NewOllamaClient(embed.DefaultBaseURL, embed.DefaultModel),
+	}
 
 	srv := mcp.NewServer(&mcp.Implementation{Name: "ctx", Version: "0.1.0"}, nil)
 	s.registerSearch(srv)

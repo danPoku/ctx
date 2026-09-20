@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/kojog/ctx/internal/embed"
 	"github.com/kojog/ctx/internal/search"
 	"github.com/kojog/ctx/internal/store"
 )
@@ -42,15 +44,22 @@ func runSearch(args []string) error {
 		return fmt.Errorf("resolve project for %s: %w", cwd, err)
 	}
 
-	results, err := search.Keyword(db, query, projectID, *agent, *limit)
+	// Best tries semantic+keyword fusion and falls back to keyword-only on
+	// its own — cheap to always offer a client here, since Hybrid only
+	// actually reaches Ollama if vec0 (and chunk_vectors) are usable at all.
+	client := embed.NewOllamaClient(embed.DefaultBaseURL, embed.DefaultModel)
+	got, err := search.Best(context.Background(), db, client, query, projectID, *agent, *limit)
 	if err != nil {
 		return err
 	}
-	if len(results) == 0 {
+	if got.FallbackReason != nil {
+		fmt.Fprintf(os.Stderr, "ctx search: semantic search unavailable, falling back to keyword-only: %v\n", got.FallbackReason)
+	}
+	if len(got.Results) == 0 {
 		fmt.Println("no results")
 		return nil
 	}
-	for _, r := range results {
+	for _, r := range got.Results {
 		fmt.Printf("[%s] %s  %s\n    %s\n\n", r.Agent, r.StartedAt, r.SessionID, r.Snippet)
 	}
 	return nil

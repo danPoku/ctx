@@ -26,6 +26,11 @@ type searchContextHit struct {
 
 type searchContextResult struct {
 	Results []searchContextHit `json:"results"`
+	// UsedSemanticSearch tells the caller whether this ran keyword+semantic
+	// fusion or fell back to keyword-only (no embedding worker has caught
+	// up yet, or the local Ollama isn't reachable) — visible so an agent
+	// doesn't mistake a degraded result set for the real thing.
+	UsedSemanticSearch bool `json:"used_semantic_search"`
 }
 
 type searchNotesArgs struct {
@@ -60,17 +65,17 @@ func (s *server) registerSearch(srv *mcp.Server) {
 	}, s.searchNotes)
 }
 
-func (s *server) searchContext(_ context.Context, _ *mcp.CallToolRequest, args searchContextArgs) (*mcp.CallToolResult, searchContextResult, error) {
+func (s *server) searchContext(ctx context.Context, _ *mcp.CallToolRequest, args searchContextArgs) (*mcp.CallToolResult, searchContextResult, error) {
 	limit := args.Limit
 	if limit <= 0 {
 		limit = defaultSearchLimit
 	}
-	rows, err := search.Keyword(s.db, args.Query, s.projectID, args.Agent, limit)
+	got, err := search.Best(ctx, s.db, s.embedClient, args.Query, s.projectID, args.Agent, limit)
 	if err != nil {
 		return nil, searchContextResult{}, err
 	}
-	out := searchContextResult{Results: make([]searchContextHit, len(rows))}
-	for i, r := range rows {
+	out := searchContextResult{Results: make([]searchContextHit, len(got.Results)), UsedSemanticSearch: got.UsedHybrid}
+	for i, r := range got.Results {
 		out.Results[i] = searchContextHit{
 			ChunkID: r.ChunkID, SessionID: r.SessionID, Agent: r.Agent,
 			StartedAt: r.StartedAt, Snippet: r.Snippet,

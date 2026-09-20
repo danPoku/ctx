@@ -9,16 +9,20 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
+	"github.com/kojog/ctx/internal/vecext"
 	"github.com/kojog/ctx/migrations"
 )
 
-// The sqlite-vec extension (the vec0 virtual table module) isn't wired up
-// yet — that's milestone 5 (embedding worker + hybrid search), and mixing
-// its cgo bindings with mattn/go-sqlite3's bundled amalgamation needs its
-// own header plumbing that doesn't belong in this milestone. Until then,
-// 002_vectors.sql's CREATE VIRTUAL TABLE ... USING vec0(...) fails with "no
-// such module: vec0" on every run, which is exactly the case Migrate below
-// is built to log-and-continue past.
+func init() {
+	// Registers sqlite-vec's vec0 module on every SQLite connection opened
+	// in this process from here on. Must run before Open is ever called.
+	// See internal/vecext's doc for why this needs a vendored package
+	// rather than importing sqlite-vec's own Go bindings directly. If the
+	// module still can't be used for some reason, that surfaces later as a
+	// "no such module: vec0" error when 002_vectors.sql runs, which Migrate
+	// treats as optional rather than fatal.
+	vecext.Register()
+}
 
 // Open opens (creating if necessary) the SQLite database at path with the
 // four connection pragmas required by every ctx component: journal_mode=WAL,

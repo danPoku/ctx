@@ -81,6 +81,53 @@ SELECT f.chunk_id,
  LIMIT :limit;
 
 
+-- name: SearchHybridByAgent :many
+-- Same fusion as SearchHybrid, scoped to one agent. vec0's `agent` metadata
+-- column has to be filtered as a literal equality constraint inside the KNN
+-- query itself — it can't be expressed as ":agent IS NULL OR ..." the way a
+-- normal b-tree index column can — so an agent-scoped call needs its own
+-- copy of the `sem` CTE rather than one shared query. The `kw` CTE is
+-- filtered too, for consistency with SearchKeyword's own agent scoping.
+WITH kw AS (
+    SELECT c.id AS chunk_id,
+           row_number() OVER (ORDER BY chunks_fts.rank) AS r
+      FROM chunks_fts
+      JOIN chunks   c ON c.id = chunks_fts.rowid
+      JOIN sessions s ON s.id = c.session_id
+     WHERE chunks_fts MATCH :query
+       AND s.project_id = :project_id
+       AND s.agent = :agent
+     ORDER BY chunks_fts.rank
+     LIMIT 50
+),
+sem AS (
+    SELECT chunk_id,
+           row_number() OVER (ORDER BY distance) AS r
+      FROM chunk_vectors
+     WHERE embedding MATCH :query_embedding       -- JSON array or float32 blob
+       AND k = 50
+       AND project_id = :project_id
+       AND agent = :agent
+),
+fused AS (
+    SELECT chunk_id, SUM(1.0 / (60 + r)) AS score
+      FROM (SELECT chunk_id, r FROM kw UNION ALL SELECT chunk_id, r FROM sem)
+     GROUP BY chunk_id
+)
+SELECT f.chunk_id,
+       f.score,
+       c.session_id,
+       s.agent,
+       s.title,
+       s.started_at,
+       substr(c.text, 1, 400) AS preview
+  FROM fused f
+  JOIN chunks   c ON c.id = f.chunk_id
+  JOIN sessions s ON s.id = c.session_id
+ ORDER BY f.score DESC
+ LIMIT :limit;
+
+
 -- name: RecentSessions :many
 SELECT *
   FROM v_session_overview

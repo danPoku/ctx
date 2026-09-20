@@ -41,7 +41,8 @@ func openTestDB(t *testing.T) *sql.DB {
 
 func TestMigrateCreatesCoreSchema(t *testing.T) {
 	db := openTestDB(t)
-	if _, err := Migrate(db); err != nil {
+	result, err := Migrate(db)
+	if err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
 
@@ -71,6 +72,12 @@ func TestMigrateCreatesCoreSchema(t *testing.T) {
 		}
 		if gotType != wantType {
 			t.Errorf("%q: type = %q, want %q", name, gotType, wantType)
+		}
+	}
+
+	if result.VectorsLoaded {
+		if gotType, ok := got["chunk_vectors"]; !ok || gotType != "table" {
+			t.Errorf("chunk_vectors missing or wrong type (%q, ok=%v) despite VectorsLoaded=true", gotType, ok)
 		}
 	}
 }
@@ -176,5 +183,50 @@ func TestMigrateTwiceIsANoOp(t *testing.T) {
 	}
 	if count != want {
 		t.Errorf("schema_migrations has %d rows after second Migrate, want %d (idempotent)", count, want)
+	}
+}
+
+// TestVec0ActuallyWorks is more than a schema check: it inserts a real
+// vector and runs a real KNN query, proving vec0's compiled implementation
+// is actually linked and callable — not just that CREATE VIRTUAL TABLE
+// happened to parse. See internal/vecext's doc for why this needed
+// vendored C source rather than just importing sqlite-vec's Go bindings.
+//
+// If VectorsLoaded is false (a machine without a working cgo toolchain, or
+// a future mattn/go-sqlite3 upgrade whose bundled SQLite has drifted from
+// the vendored header), this skips rather than fails — matching Migrate's
+// own contract that semantic search is optional, not required.
+func TestVec0ActuallyWorks(t *testing.T) {
+	db := openTestDB(t)
+	result, err := Migrate(db)
+	if err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	if !result.VectorsLoaded {
+		t.Skipf("vec0 did not load, skipping: %v", result.VectorsErr)
+	}
+
+	var version string
+	if err := db.QueryRow(`SELECT vec_version()`).Scan(&version); err != nil {
+		t.Fatalf("vec_version(): %v", err)
+	}
+	if version == "" {
+		t.Error("vec_version() returned an empty string")
+	}
+
+	if _, err := db.Exec(`CREATE VIRTUAL TABLE t_vec_check USING vec0(id INTEGER PRIMARY KEY, embedding FLOAT[4])`); err != nil {
+		t.Fatalf("create vec0 table: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO t_vec_check(id, embedding) VALUES (1, '[0.1, 0.2, 0.3, 0.4]'), (2, '[0.9, 0.9, 0.9, 0.9]')`); err != nil {
+		t.Fatalf("insert vectors: %v", err)
+	}
+
+	var gotID int
+	err = db.QueryRow(`SELECT id FROM t_vec_check WHERE embedding MATCH '[0.1, 0.2, 0.3, 0.4]' AND k = 1`).Scan(&gotID)
+	if err != nil {
+		t.Fatalf("KNN query: %v", err)
+	}
+	if gotID != 1 {
+		t.Errorf("KNN match = id %d, want 1 (the identical vector, not the distant one)", gotID)
 	}
 }

@@ -102,6 +102,7 @@ func TestSearchContext(t *testing.T) {
 			Agent     string `json:"agent"`
 			Snippet   string `json:"snippet"`
 		} `json:"results"`
+		UsedSemanticSearch bool `json:"used_semantic_search"`
 	}
 	callTool(t, cs, "search_context", map[string]any{"query": "WAL"}, &out)
 
@@ -113,6 +114,13 @@ func TestSearchContext(t *testing.T) {
 	}
 	if !strings.Contains(out.Results[0].Snippet, "WAL") {
 		t.Errorf("Snippet = %q, want it to contain WAL", out.Results[0].Snippet)
+	}
+	// This test environment has no Ollama reachable at the default URL, so
+	// search_context must transparently fall back to keyword-only rather
+	// than error — proof search.Best's fallback is actually wired through
+	// the MCP layer, not just tested in isolation.
+	if out.UsedSemanticSearch {
+		t.Error("UsedSemanticSearch = true, want false (no Ollama reachable in this test environment)")
 	}
 }
 
