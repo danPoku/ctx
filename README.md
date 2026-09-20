@@ -70,6 +70,29 @@ go install -tags sqlite_fts5 ./cmd/ctx
 Either puts `ctx` in `$(go env GOPATH)/bin`. Make sure that directory is on your
 `PATH`.
 
+### macOS
+
+macOS is expected to work on Apple Silicon and Intel, but it has not been built
+or tested there yet. Nothing in the code is Linux-specific: session logs are
+found under `~/.claude/projects` and `~/.codex/sessions` via the user's home
+directory, and the database is `~/.ctx/ctx.db`. The likely snag is cgo, which
+needs Apple's command-line compiler tools:
+
+```
+xcode-select --install
+go install -tags sqlite_fts5 github.com/danPoku/ctx/cmd/ctx@latest
+```
+
+For semantic search:
+
+```
+brew install ollama
+ollama pull nomic-embed-text
+ctx embed
+```
+
+If you try it, please open an issue with the result, good or bad.
+
 ## Quick start
 
 ```
@@ -161,6 +184,21 @@ Search returns snippets on purpose. An agent that wants the full exchange calls
 `get_chunk` with the hit's `chunk_id`, or `get_session` with the session id and
 the hit's `first_seq` and `last_seq`.
 
+### Getting agents to use `get_chunk`
+
+Agents do not reliably pick `get_chunk` from its tool description alone. In a
+small test, an agent told only to "use `search_context`, and `get_session` if
+you need more detail" went straight to `get_session` every time. Naming the path
+explicitly cut its token use by about a fifth and its calls from 18 to 16. Add
+something like this to your `CLAUDE.md` or `AGENTS.md`:
+
+```
+To recall earlier work in this project, use the ctx MCP tools: call
+search_context first, then get_chunk with a hit's chunk_id to read the matching
+exchange. Use get_session only if the chunk is not enough, and pass the hit's
+first_seq and last_seq rather than paging from the start.
+```
+
 ## Commands
 
 | Command | |
@@ -251,6 +289,8 @@ way.
   session's old rows stay in the database.
 - There are no session summaries. The `summary` column exists and is unused.
 - Redaction is best effort, as described above.
+- macOS is untested (see [macOS](#macos)), and there are no prebuilt binaries
+  yet, so installing needs Go and a C compiler.
 
 ## Development
 
