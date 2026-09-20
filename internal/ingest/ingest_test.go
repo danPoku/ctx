@@ -316,3 +316,50 @@ func TestRunRecordsFileTouches(t *testing.T) {
 		t.Errorf("file_touches after re-run = %d, want 2 (no duplicates)", count)
 	}
 }
+
+// A live daemon can read a Codex file after only its first line (the
+// session_meta that carries the session id) has been written, then resume
+// later with a brand-new adapter. Lines after the resume point must still be
+// stored — previously they came back with no session id and were dropped
+// while the byte offset advanced anyway.
+func TestRunResumeWithFreshAdapterKeepsCodexSessionID(t *testing.T) {
+	db := openTestDB(t)
+	full, err := os.ReadFile("codex/testdata/session.jsonl")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	firstEnd := strings.Index(string(full), "\n") + 1
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+
+	if err := os.WriteFile(path, full[:firstEnd], 0644); err != nil {
+		t.Fatalf("write first line: %v", err)
+	}
+	if err := ingest.Run(db, codex.New(), path); err != nil {
+		t.Fatalf("Run (first line): %v", err)
+	}
+
+	if err := os.WriteFile(path, full, 0644); err != nil {
+		t.Fatalf("write full file: %v", err)
+	}
+	if err := ingest.Run(db, codex.New(), path); err != nil { // fresh adapter, as the daemon does
+		t.Fatalf("Run (resume): %v", err)
+	}
+
+	var withResume int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&withResume); err != nil {
+		t.Fatalf("count messages: %v", err)
+	}
+
+	// Reference: the same file ingested in one go.
+	ref := openTestDB(t)
+	if err := ingest.Run(ref, codex.New(), copyFixture(t, "codex/testdata/session.jsonl")); err != nil {
+		t.Fatalf("Run (reference): %v", err)
+	}
+	var want int
+	if err := ref.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&want); err != nil {
+		t.Fatalf("count reference messages: %v", err)
+	}
+	if want == 0 || withResume != want {
+		t.Errorf("messages after resume = %d, want %d (same as a one-shot ingest)", withResume, want)
+	}
+}

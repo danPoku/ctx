@@ -97,6 +97,20 @@ func Run(db *sql.DB, adapter Adapter, path string) error {
 		return err
 	}
 
+	// Adapters can be stateful per file (Codex learns its session id only
+	// from line 1's session_meta). A run that resumes mid-file gets a fresh
+	// adapter that never saw that line, so every later line would come back
+	// with no session id and be dropped — while the byte offset still
+	// advanced, losing those messages for good. Like handing a new clerk the
+	// case file's cover sheet before the day's new pages, replay the first
+	// line into the adapter and discard the result. Harmless for stateless
+	// adapters.
+	if byteOffset > 0 {
+		if err := primeAdapter(f, adapter); err != nil {
+			return err
+		}
+	}
+
 	r := bufio.NewReaderSize(f, 64*1024)
 	toolNames := map[string]string{} // tool_use id -> tool name, this run only; see adapter doc
 	sessionSeq := map[string]int{}   // session id -> next seq to assign
@@ -143,6 +157,20 @@ func Run(db *sql.DB, adapter Adapter, path string) error {
 		return err
 	}
 	return updateSource(db, src.ID, consumed, newHeadHash, lastErr)
+}
+
+// primeAdapter feeds the file's first line to adapter, ignoring both its
+// result and any parse error (a bad first line is already logged when the
+// line was first ingested). ReadAt leaves f's read position alone.
+func primeAdapter(f *os.File, adapter Adapter) error {
+	r := bufio.NewReader(io.NewSectionReader(f, 0, 1<<20))
+	first, err := r.ReadBytes('\n')
+	if err != nil {
+		// No complete first line yet, so nothing was ever consumed either.
+		return nil
+	}
+	_, _ = adapter.ParseLine(bytes.TrimRight(first, "\n"))
+	return nil
 }
 
 // headHashUpTo hashes the first min(4096, offset) bytes of f, read from the
