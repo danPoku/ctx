@@ -440,3 +440,55 @@ func TestRunRewrittenFileReplacesRowsInsteadOfDuplicating(t *testing.T) {
 		}
 	})
 }
+
+// The VS Code Claude Code extension writes an empty system event after each
+// assistant reply. A finished final turn followed only by such bookkeeping
+// rows must still be chunked (and so searchable); one that ends in a tool
+// call must not.
+func TestRunChunksFinalTurnFollowedByBookkeepingEvent(t *testing.T) {
+	line := func(typ, body string) string {
+		return `{"type":"` + typ + `",` + body + `"sessionId":"sess-tail","cwd":"/home/dev/proj","timestamp":"2026-09-20T10:00:00Z"}` + "\n"
+	}
+	user := line("user", `"message":{"role":"user","content":"Remember ZEPHYRQUOKKA-TAIL"},`)
+	assistant := line("assistant", `"message":{"role":"assistant","model":"m","content":[{"type":"text","text":"Noted ZEPHYRQUOKKA-TAIL."}]},`)
+	toolCall := line("assistant", `"message":{"role":"assistant","model":"m","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]},`)
+	// A bookkeeping row the adapter stores as system/event with no content.
+	event := line("system", `"subtype":"turn_duration",`)
+
+	cases := []struct {
+		name       string
+		content    string
+		wantChunks int
+	}{
+		{"reply then bookkeeping event", user + assistant + event, 1},
+		{"reply then two events", user + assistant + event + event, 1},
+		{"reply only (unchanged behaviour)", user + assistant, 1},
+		{"ends mid tool call", user + toolCall, 0},
+		{"tool call then event", user + toolCall + event, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openTestDB(t)
+			path := filepath.Join(t.TempDir(), "s.jsonl")
+			if err := os.WriteFile(path, []byte(tc.content), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if err := ingest.Run(db, claudecode.New(), path); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			var n int
+			db.QueryRow(`SELECT COUNT(*) FROM chunks`).Scan(&n)
+			if n != tc.wantChunks {
+				var rows []string
+				r, _ := db.Query(`SELECT seq||':'||role||'/'||kind FROM messages ORDER BY seq`)
+				for r.Next() {
+					var s string
+					r.Scan(&s)
+					rows = append(rows, s)
+				}
+				r.Close()
+				t.Errorf("chunks = %d, want %d (messages: %v)", n, tc.wantChunks, rows)
+			}
+		})
+	}
+}

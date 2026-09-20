@@ -19,8 +19,9 @@ type turnRow struct {
 //     unambiguous proof the previous turn is over, whether or not the
 //     assistant ever replied with text of its own.
 //   - The trailing, still-open buffer at end-of-input only closes if it
-//     looks settled: its last row is an assistant text message, i.e. the
-//     assistant appears to have finished rather than being mid-tool-call.
+//     looks settled: its last conversational row is an assistant text message
+//     (bookkeeping system events after it are ignored, see endsSettled), i.e.
+//     the assistant appears to have finished rather than being mid-tool-call.
 //     An unsettled tail is left for the next ingest run to complete.
 //
 // This makes chunking purely insert-only: no chunk is ever revised once
@@ -67,12 +68,33 @@ func chunkSession(db *sql.DB, sessionID string) error {
 		return err
 	}
 
-	if n := len(buf); n > 0 && buf[n-1].role == "assistant" && buf[n-1].kind == "text" {
+	if endsSettled(buf) {
 		if err := flush(); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// endsSettled reports whether the trailing, still-open turn looks finished:
+// its last row that actually carries conversation is an assistant text
+// message. Rows with role "system" (bookkeeping events such as a turn
+// duration notice) are skipped, because some clients write one after every
+// reply — the VS Code Claude Code extension does. Judging by the literal last
+// row would leave every such session's final turn unindexed until the user
+// typed again, like a filing clerk who won't file a finished letter because a
+// delivery slip was stapled behind it.
+//
+// A trailing tool call or tool result still means the assistant is mid-work,
+// so it is never treated as settled, with or without events after it.
+func endsSettled(buf []turnRow) bool {
+	for i := len(buf) - 1; i >= 0; i-- {
+		if buf[i].role == "system" {
+			continue
+		}
+		return buf[i].role == "assistant" && buf[i].kind == "text"
+	}
+	return false
 }
 
 func insertChunkIfQualifying(db *sql.DB, sessionID string, buf []turnRow) error {
