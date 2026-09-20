@@ -52,8 +52,11 @@ schema and MCP tool output can still change. See
 
 ## Install
 
-Clone and build. The module path in `go.mod` is `github.com/kojog/ctx`, so
-`go install` from the repository directory rather than by remote path:
+```
+go install -tags sqlite_fts5 github.com/danPoku/ctx/cmd/ctx@latest
+```
+
+or from a clone:
 
 ```
 git clone https://github.com/danPoku/ctx
@@ -61,7 +64,7 @@ cd ctx
 go install -tags sqlite_fts5 ./cmd/ctx
 ```
 
-This puts `ctx` in `$(go env GOPATH)/bin`. Make sure that directory is on your
+Either puts `ctx` in `$(go env GOPATH)/bin`. Make sure that directory is on your
 `PATH`.
 
 ## Quick start

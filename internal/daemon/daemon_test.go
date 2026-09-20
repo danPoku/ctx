@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kojog/ctx/internal/daemon"
-	"github.com/kojog/ctx/internal/ingest"
-	"github.com/kojog/ctx/internal/ingest/claudecode"
-	"github.com/kojog/ctx/internal/store"
+	"github.com/danPoku/ctx/internal/daemon"
+	"github.com/danPoku/ctx/internal/ingest"
+	"github.com/danPoku/ctx/internal/ingest/claudecode"
+	"github.com/danPoku/ctx/internal/store"
 )
 
 func openTestDB(t *testing.T) *sql.DB {

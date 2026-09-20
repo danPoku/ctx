@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/kojog/ctx/internal/ingest"
+	"github.com/danPoku/ctx/internal/ingest"
 )
 
 func TestParseLine(t *testing.T) {

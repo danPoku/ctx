@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/kojog/ctx/internal/store"
-	"github.com/kojog/ctx/queries"
+	"github.com/danPoku/ctx/internal/store"
+	"github.com/danPoku/ctx/queries"
 )
 
 // Run processes up to batchSize pending chunks (chunks.embedded_at IS

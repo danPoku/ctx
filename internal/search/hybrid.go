@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/kojog/ctx/internal/embed"
-	"github.com/kojog/ctx/internal/store"
-	"github.com/kojog/ctx/queries"
+	"github.com/danPoku/ctx/internal/embed"
+	"github.com/danPoku/ctx/internal/store"
+	"github.com/danPoku/ctx/queries"
 )
 
 // HybridResult is one row of SearchHybrid/SearchHybridByAgent's result set.

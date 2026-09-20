@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kojog/ctx/internal/ingest"
-	"github.com/kojog/ctx/internal/ingest/claudecode"
-	"github.com/kojog/ctx/internal/ingest/codex"
-	"github.com/kojog/ctx/internal/store"
+	"github.com/danPoku/ctx/internal/ingest"
+	"github.com/danPoku/ctx/internal/ingest/claudecode"
+	"github.com/danPoku/ctx/internal/ingest/codex"
+	"github.com/danPoku/ctx/internal/store"
 )
 
 func openTestDB(t *testing.T) *sql.DB {

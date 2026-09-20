@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kojog/ctx/internal/store"
+	"github.com/danPoku/ctx/internal/store"
 )
 
 func openFTSTestDB(t *testing.T) *sql.DB {

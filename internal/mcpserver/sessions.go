@@ -7,8 +7,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/kojog/ctx/internal/store"
-	"github.com/kojog/ctx/queries"
+	"github.com/danPoku/ctx/internal/store"
+	"github.com/danPoku/ctx/queries"
 )
 
 const defaultRecentLimit = 20

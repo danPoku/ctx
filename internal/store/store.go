@@ -9,8 +9,8 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/kojog/ctx/internal/vecext"
-	"github.com/kojog/ctx/migrations"
+	"github.com/danPoku/ctx/internal/vecext"
+	"github.com/danPoku/ctx/migrations"
 )
 
 func init() {

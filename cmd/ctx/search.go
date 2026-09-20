@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/kojog/ctx/internal/embed"
-	"github.com/kojog/ctx/internal/search"
-	"github.com/kojog/ctx/internal/store"
+	"github.com/danPoku/ctx/internal/embed"
+	"github.com/danPoku/ctx/internal/search"
+	"github.com/danPoku/ctx/internal/store"
 )
 
 // searchFlagsWithValue lists this command's flags that take a value, so

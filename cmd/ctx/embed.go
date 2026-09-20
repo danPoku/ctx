@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/kojog/ctx/internal/embed"
+	"github.com/danPoku/ctx/internal/embed"
 )
 
 func runEmbed(args []string) error {

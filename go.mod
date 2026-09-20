@@ -1,4 +1,4 @@
-module github.com/kojog/ctx
+module github.com/danPoku/ctx
 
 go 1.27.1
 

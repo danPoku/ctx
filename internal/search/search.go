@@ -7,8 +7,8 @@ import (
 	"database/sql"
 	"encoding/json"
 
-	"github.com/kojog/ctx/internal/store"
-	"github.com/kojog/ctx/queries"
+	"github.com/danPoku/ctx/internal/store"
+	"github.com/danPoku/ctx/queries"
 )
 
 // KeywordResult is one row of SearchKeyword's result set.

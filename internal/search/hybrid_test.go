@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kojog/ctx/internal/embed"
-	"github.com/kojog/ctx/internal/ingest"
-	"github.com/kojog/ctx/internal/ingest/claudecode"
-	"github.com/kojog/ctx/internal/search"
-	"github.com/kojog/ctx/internal/store"
+	"github.com/danPoku/ctx/internal/embed"
+	"github.com/danPoku/ctx/internal/ingest"
+	"github.com/danPoku/ctx/internal/ingest/claudecode"
+	"github.com/danPoku/ctx/internal/search"
+	"github.com/danPoku/ctx/internal/store"
 )
 
 // fixedEmbedder always returns the same vector, regardless of input text.

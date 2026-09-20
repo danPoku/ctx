@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kojog/ctx/internal/store"
+	"github.com/danPoku/ctx/internal/store"
 )
 
 func main() {

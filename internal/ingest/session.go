@@ -3,7 +3,7 @@ package ingest
 import (
 	"database/sql"
 
-	"github.com/kojog/ctx/internal/store"
+	"github.com/danPoku/ctx/internal/store"
 )
 
 // upsertSession creates sessionID's row on first sight and otherwise

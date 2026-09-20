@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kojog/ctx/internal/store"
+	"github.com/danPoku/ctx/internal/store"
 )
 
 type fakeEmbedder struct {

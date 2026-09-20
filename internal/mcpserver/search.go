@@ -5,7 +5,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/kojog/ctx/internal/search"
+	"github.com/danPoku/ctx/internal/search"
 )
 
 const defaultSearchLimit = 10

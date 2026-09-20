@@ -46,7 +46,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/kojog/ctx/internal/ingest"
+	"github.com/danPoku/ctx/internal/ingest"
 )
 
 // Adapter is stateful: it must not be shared across files. Use New() to get

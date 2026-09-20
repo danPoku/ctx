@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kojog/ctx/internal/embed"
-	"github.com/kojog/ctx/internal/search"
-	"github.com/kojog/ctx/internal/store"
+	"github.com/danPoku/ctx/internal/embed"
+	"github.com/danPoku/ctx/internal/search"
+	"github.com/danPoku/ctx/internal/store"
 )
 
 // axisEmbedder embeds every query as the unit vector along dimension 0, so a

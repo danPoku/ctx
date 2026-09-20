@@ -11,8 +11,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/kojog/ctx/internal/embed"
-	"github.com/kojog/ctx/internal/store"
+	"github.com/danPoku/ctx/internal/embed"
+	"github.com/danPoku/ctx/internal/store"
 )
 
 // server holds what every tool handler needs. projectID is resolved once,

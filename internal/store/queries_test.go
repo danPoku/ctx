@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kojog/ctx/queries"
+	"github.com/danPoku/ctx/queries"
 )
 
 func TestLoadQueryExtractsNamedSection(t *testing.T) {
