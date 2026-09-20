@@ -6,9 +6,11 @@ Licensed under the Apache License, Version 2.0. See LICENSE.
 Third-party code
 ----------------
 internal/vecext/sqlite-vec.c and sqlite-vec.h are vendored from
-github.com/asg017/sqlite-vec-go-bindings v0.1.6 (sqlite-vec, by Alex Garcia).
-The upstream repository's license terms apply to those two files; see
-https://github.com/asg017/sqlite-vec.
+github.com/asg017/sqlite-vec-go-bindings v0.1.6, which packages sqlite-vec,
+Copyright (c) 2024 Alex Garcia. The sqlite-vec repository publishes both an
+MIT license (LICENSE-MIT) and an Apache License 2.0 (LICENSE-APACHE). The MIT
+text is reproduced in internal/vecext/LICENSE-sqlite-vec-MIT. Upstream:
+https://github.com/asg017/sqlite-vec
 
 internal/vecext/sqlite3.h is an unmodified copy of sqlite3-binding.h from
 github.com/mattn/go-sqlite3 v1.14.52, renamed so an #include resolves. It
