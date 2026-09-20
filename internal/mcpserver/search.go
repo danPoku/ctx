@@ -26,6 +26,11 @@ type searchContextHit struct {
 	StartedAt string `json:"started_at"` // when the session began
 	At        string `json:"at"`         // when this hit's turn happened
 	Snippet   string `json:"snippet"`
+	// FirstSeq..LastSeq is the message range of the matching exchange:
+	// get_session(session_id, from_seq=first_seq, to_seq=last_seq) reads
+	// just that, and get_chunk(chunk_id) returns its text directly.
+	FirstSeq int `json:"first_seq"`
+	LastSeq  int `json:"last_seq"`
 }
 
 type searchContextResult struct {
@@ -60,7 +65,7 @@ func (s *server) registerSearch(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "search_context",
 		Description: "Keyword search over past coding-agent sessions in this project — across every agent that's been ingested (Claude Code, Codex, ...), not just the one calling this tool. " +
-			"Returns short snippets, not full transcripts: use get_session with the returned session_id to page in the full detail around a hit.",
+			"Returns short snippets, not full transcripts. To read a hit, call get_chunk with its chunk_id (the matching exchange, ~1k tokens), or get_session with its session_id and from_seq/to_seq set to the hit's first_seq/last_seq.",
 	}, s.searchContext)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -83,6 +88,7 @@ func (s *server) searchContext(ctx context.Context, _ *mcp.CallToolRequest, args
 		out.Results[i] = searchContextHit{
 			ChunkID: r.ChunkID, SessionID: r.SessionID, Agent: r.Agent,
 			StartedAt: r.StartedAt, At: r.At, Snippet: r.Snippet,
+			FirstSeq: r.FirstSeq, LastSeq: r.LastSeq,
 		}
 	}
 	return nil, out, nil

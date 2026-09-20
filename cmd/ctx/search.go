@@ -63,7 +63,7 @@ func runSearch(args []string) error {
 		return nil
 	}
 	for _, r := range got.Results {
-		fmt.Printf("[%s] %s  %s\n    %s\n\n", r.Agent, r.At, r.SessionID, r.Snippet)
+		fmt.Printf("[%s] %s  %s  seq %d-%d\n    %s\n\n", r.Agent, r.At, r.SessionID, r.FirstSeq, r.LastSeq, r.Snippet)
 	}
 	return nil
 }

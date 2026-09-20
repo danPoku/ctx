@@ -83,6 +83,9 @@ func TestHybridFusesKeywordAndSemanticResults(t *testing.T) {
 		if results[0].Agent != "claude-code" {
 			t.Errorf("Agent = %q, want claude-code", results[0].Agent)
 		}
+		if results[0].FirstSeq != 0 || results[0].LastSeq <= results[0].FirstSeq {
+			t.Errorf("range = %d-%d, want the chunk's message span starting at 0", results[0].FirstSeq, results[0].LastSeq)
+		}
 		if results[0].Score <= 0 {
 			t.Errorf("Score = %v, want > 0", results[0].Score)
 		}

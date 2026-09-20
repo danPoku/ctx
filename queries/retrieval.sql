@@ -20,6 +20,8 @@ SELECT c.id                                       AS chunk_id,
        s.started_at,
        snippet(chunks_fts, 0, '[', ']', ' … ', 24) AS snippet,
        chunks_fts.rank                             AS bm25,
+       c.first_seq,
+       c.last_seq,
        COALESCE((SELECT MIN(m.created_at) FROM messages m
                  WHERE m.session_id = c.session_id
                    AND m.seq BETWEEN c.first_seq AND c.last_seq),
@@ -84,7 +86,9 @@ SELECT f.chunk_id,
        s.agent,
        s.title,
        s.started_at,
-       substr(c.text, 1, 400) AS preview,          -- summary first; full text on request
+       c.text AS preview,                          -- full chunk text; search.centerSnippet cuts the hit-centred preview in Go
+       c.first_seq,
+       c.last_seq,
        COALESCE((SELECT MIN(m.created_at) FROM messages m
                  WHERE m.session_id = c.session_id
                    AND m.seq BETWEEN c.first_seq AND c.last_seq),
@@ -139,7 +143,9 @@ SELECT f.chunk_id,
        s.agent,
        s.title,
        s.started_at,
-       substr(c.text, 1, 400) AS preview,
+       c.text AS preview,                          -- see SearchHybrid
+       c.first_seq,
+       c.last_seq,
        COALESCE((SELECT MIN(m.created_at) FROM messages m
                  WHERE m.session_id = c.session_id
                    AND m.seq BETWEEN c.first_seq AND c.last_seq),
@@ -176,14 +182,44 @@ SELECT s.id, s.agent, s.title, s.started_at,
 
 
 -- name: GetSessionMessages :many
--- Paged transcript read. The app caps (to_seq - from_seq) so an agent can't
--- swallow a 2,000-message session in one call.
+-- Paged transcript read. The app caps (to_seq - from_seq) and the total
+-- characters returned, so an agent can't swallow a 2,000-message session in
+-- one call. Conversation text only unless :include_tools = 1: tool calls and
+-- especially tool results are the bulk of a transcript's bytes and rarely the
+-- part an agent is looking for.
 SELECT seq, role, kind, tool_name, content, created_at
   FROM messages
  WHERE session_id = :session_id
    AND seq BETWEEN :from_seq AND :to_seq
    AND kind <> 'thinking'                          -- reasoning traces rarely help retrieval
+   AND (:include_tools = 1 OR kind = 'text')
  ORDER BY seq;
+
+
+-- name: FirstMessageSeqAfter :one
+-- Resume point for paging: the first message past :after_seq that
+-- GetSessionMessages would return under the same :include_tools setting.
+SELECT MIN(seq)
+  FROM messages
+ WHERE session_id = :session_id
+   AND seq > :after_seq
+   AND kind <> 'thinking'
+   AND (:include_tools = 1 OR kind = 'text');
+
+
+-- name: GetChunk :one
+-- One chunk (a user turn + the assistant's reply, ~900 tokens) by id, scoped
+-- to the caller's project so a chunk id from another project reads as absent.
+SELECT c.id, c.session_id, s.agent, c.first_seq, c.last_seq, c.text,
+       COALESCE((SELECT MIN(m.created_at) FROM messages m
+                 WHERE m.session_id = c.session_id
+                   AND m.seq BETWEEN c.first_seq AND c.last_seq),
+                s.started_at)
+                              AS chunk_at
+  FROM chunks c
+  JOIN sessions s ON s.id = c.session_id
+ WHERE c.id = :chunk_id
+   AND s.project_id = :project_id;
 
 
 -- name: SearchNotes :many

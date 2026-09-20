@@ -20,6 +20,8 @@ type Result struct {
 	StartedAt string // when the SESSION started
 	At        string // when this chunk's turn happened; use this for display
 	Snippet   string
+	FirstSeq  int // message range of the matching chunk; pass to get_session
+	LastSeq   int
 }
 
 // BestResult reports what ran, not just the hits — callers (ctx search,
@@ -48,7 +50,7 @@ func Best(ctx context.Context, db *sql.DB, client embed.Embedder, query string, 
 		if err == nil {
 			out := make([]Result, len(hy))
 			for i, r := range hy {
-				out[i] = Result{ChunkID: r.ChunkID, SessionID: r.SessionID, Agent: r.Agent, StartedAt: r.StartedAt, At: r.At, Snippet: r.Preview}
+				out[i] = Result{ChunkID: r.ChunkID, SessionID: r.SessionID, Agent: r.Agent, StartedAt: r.StartedAt, At: r.At, Snippet: r.Preview, FirstSeq: r.FirstSeq, LastSeq: r.LastSeq}
 			}
 			return BestResult{Results: out, UsedHybrid: true}, nil
 		}
@@ -65,7 +67,7 @@ func Best(ctx context.Context, db *sql.DB, client embed.Embedder, query string, 
 func toResults(kw []KeywordResult) []Result {
 	out := make([]Result, len(kw))
 	for i, r := range kw {
-		out[i] = Result{ChunkID: r.ChunkID, SessionID: r.SessionID, Agent: r.Agent, StartedAt: r.StartedAt, At: r.At, Snippet: r.Snippet}
+		out[i] = Result{ChunkID: r.ChunkID, SessionID: r.SessionID, Agent: r.Agent, StartedAt: r.StartedAt, At: r.At, Snippet: r.Snippet, FirstSeq: r.FirstSeq, LastSeq: r.LastSeq}
 	}
 	return out
 }

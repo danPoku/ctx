@@ -287,3 +287,235 @@ func TestSaveNoteRejectsInvalidKind(t *testing.T) {
 		t.Error("save_note with an invalid kind: IsError = false, want true")
 	}
 }
+
+// seedMessage inserts one message straight into the fixture session, so a
+// test can build a transcript of exactly the shape it needs (a 50k-character
+// tool result, a run of long replies) without a giant JSONL fixture.
+func seedMessage(t *testing.T, db *sql.DB, seq int, role, kind, content string) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO messages(session_id, seq, role, kind, content) VALUES ('claude-code:sess-1', ?, ?, ?, ?)`,
+		seq, role, kind, content); err != nil {
+		t.Fatalf("seed message %d: %v", seq, err)
+	}
+}
+
+type sessionPage struct {
+	Messages []struct {
+		Seq              int    `json:"seq"`
+		Kind             string `json:"kind"`
+		Content          string `json:"content"`
+		ContentTruncated bool   `json:"content_truncated"`
+		FullChars        int    `json:"full_chars"`
+	} `json:"messages"`
+	Truncated   bool `json:"truncated"`
+	NextFromSeq *int `json:"next_from_seq"`
+}
+
+func TestSearchContextReturnsMessageRange(t *testing.T) {
+	cs, db := testServer(t)
+
+	var out struct {
+		Results []struct {
+			ChunkID  int64 `json:"chunk_id"`
+			FirstSeq int   `json:"first_seq"`
+			LastSeq  int   `json:"last_seq"`
+		} `json:"results"`
+	}
+	callTool(t, cs, "search_context", map[string]any{"query": "WAL"}, &out)
+	if len(out.Results) != 1 {
+		t.Fatalf("results = %d, want 1", len(out.Results))
+	}
+
+	var wantFirst, wantLast int
+	if err := db.QueryRow(`SELECT first_seq, last_seq FROM chunks WHERE id = ?`, out.Results[0].ChunkID).
+		Scan(&wantFirst, &wantLast); err != nil {
+		t.Fatalf("read chunk row: %v", err)
+	}
+	if out.Results[0].FirstSeq != wantFirst || out.Results[0].LastSeq != wantLast {
+		t.Errorf("range = %d-%d, want %d-%d (the chunk's own first_seq/last_seq)",
+			out.Results[0].FirstSeq, out.Results[0].LastSeq, wantFirst, wantLast)
+	}
+	if out.Results[0].LastSeq <= out.Results[0].FirstSeq {
+		t.Errorf("range %d-%d should span the whole exchange, not a single message", out.Results[0].FirstSeq, out.Results[0].LastSeq)
+	}
+}
+
+func TestGetChunk(t *testing.T) {
+	cs, db := testServer(t)
+
+	var hit struct {
+		Results []struct {
+			ChunkID int64 `json:"chunk_id"`
+		} `json:"results"`
+	}
+	callTool(t, cs, "search_context", map[string]any{"query": "WAL"}, &hit)
+	if len(hit.Results) != 1 {
+		t.Fatalf("search results = %d, want 1", len(hit.Results))
+	}
+
+	var out struct {
+		ChunkID   int64  `json:"chunk_id"`
+		SessionID string `json:"session_id"`
+		Agent     string `json:"agent"`
+		FirstSeq  int    `json:"first_seq"`
+		LastSeq   int    `json:"last_seq"`
+		Text      string `json:"text"`
+	}
+	callTool(t, cs, "get_chunk", map[string]any{"chunk_id": hit.Results[0].ChunkID}, &out)
+	if out.SessionID != "claude-code:sess-1" || out.Agent != "claude-code" {
+		t.Errorf("session/agent = %q/%q", out.SessionID, out.Agent)
+	}
+	if !strings.Contains(out.Text, "User: How do I open the sqlite database with WAL mode?") ||
+		!strings.Contains(out.Text, "Assistant: Open it with a DSN") {
+		t.Errorf("Text = %q, want the user turn AND the assistant reply", out.Text)
+	}
+
+	t.Run("unknown id is a tool error", func(t *testing.T) {
+		res, err := cs.CallTool(context.Background(), &sdkmcp.CallToolParams{Name: "get_chunk", Arguments: map[string]any{"chunk_id": 999999}})
+		if err == nil && !res.IsError {
+			t.Error("get_chunk for a missing id succeeded, want an error")
+		}
+	})
+
+	t.Run("a chunk from another project reads as absent", func(t *testing.T) {
+		otherProject, err := store.ResolveProject(db, "/home/other/proj")
+		if err != nil {
+			t.Fatalf("ResolveProject: %v", err)
+		}
+		if _, err := db.Exec(`INSERT INTO sessions(id, agent, native_id, project_id, started_at) VALUES ('codex:other', 'codex', 'other', ?, '2026-09-20T10:00:00Z')`, otherProject); err != nil {
+			t.Fatalf("seed session: %v", err)
+		}
+		res, err := db.Exec(`INSERT INTO chunks(session_id, first_seq, last_seq, text) VALUES ('codex:other', 0, 1, 'secret from elsewhere')`)
+		if err != nil {
+			t.Fatalf("seed chunk: %v", err)
+		}
+		id, _ := res.LastInsertId()
+		call, err := cs.CallTool(context.Background(), &sdkmcp.CallToolParams{Name: "get_chunk", Arguments: map[string]any{"chunk_id": id}})
+		if err == nil && !call.IsError {
+			t.Errorf("get_chunk read a chunk from another project: %+v", call.Content)
+		}
+	})
+
+	t.Run("oversized chunk text is cut", func(t *testing.T) {
+		res, err := db.Exec(`INSERT INTO chunks(session_id, first_seq, last_seq, text) VALUES ('claude-code:sess-1', 500, 501, ?)`, strings.Repeat("x", 50000))
+		if err != nil {
+			t.Fatalf("seed chunk: %v", err)
+		}
+		id, _ := res.LastInsertId()
+		var big struct {
+			Text          string `json:"text"`
+			TextTruncated bool   `json:"text_truncated"`
+		}
+		callTool(t, cs, "get_chunk", map[string]any{"chunk_id": id}, &big)
+		if !big.TextTruncated || len(big.Text) > 13000 {
+			t.Errorf("TextTruncated = %v, len = %d, want truncated to about 12000", big.TextTruncated, len(big.Text))
+		}
+	})
+}
+
+func TestGetSessionDefaultsToConversationText(t *testing.T) {
+	cs, _ := testServer(t)
+
+	var def sessionPage
+	callTool(t, cs, "get_session", map[string]any{"session_id": "claude-code:sess-1"}, &def)
+	if len(def.Messages) == 0 {
+		t.Fatal("no messages returned")
+	}
+	for _, m := range def.Messages {
+		if m.Kind != "text" {
+			t.Errorf("seq %d has kind %q, want only text by default", m.Seq, m.Kind)
+		}
+	}
+
+	var withTools sessionPage
+	callTool(t, cs, "get_session", map[string]any{"session_id": "claude-code:sess-1", "include_tools": true}, &withTools)
+	kinds := map[string]bool{}
+	for _, m := range withTools.Messages {
+		kinds[m.Kind] = true
+	}
+	if !kinds["tool_call"] || !kinds["tool_result"] {
+		t.Errorf("include_tools kinds = %v, want tool_call and tool_result present", kinds)
+	}
+	if len(withTools.Messages) <= len(def.Messages) {
+		t.Errorf("include_tools returned %d messages, default %d; want more", len(withTools.Messages), len(def.Messages))
+	}
+}
+
+func TestGetSessionTruncatesHugeToolResult(t *testing.T) {
+	cs, db := testServer(t)
+	seedMessage(t, db, 100, "tool", "tool_result", strings.Repeat("r", 80000))
+
+	var out sessionPage
+	callTool(t, cs, "get_session", map[string]any{
+		"session_id": "claude-code:sess-1", "from_seq": 100, "to_seq": 100, "include_tools": true,
+	}, &out)
+	if len(out.Messages) != 1 {
+		t.Fatalf("messages = %d, want 1", len(out.Messages))
+	}
+	m := out.Messages[0]
+	if !m.ContentTruncated || m.FullChars != 80000 {
+		t.Errorf("ContentTruncated = %v, FullChars = %d, want true / 80000", m.ContentTruncated, m.FullChars)
+	}
+	if len(m.Content) > 2000 {
+		t.Errorf("content is %d chars, want the tool result cut to about 1500", len(m.Content))
+	}
+}
+
+func TestGetSessionCapsTotalCharsAndPages(t *testing.T) {
+	cs, db := testServer(t)
+	// Ten 5000-character assistant replies, well under the row cap but far
+	// over a 12000-character budget.
+	for i := 0; i < 10; i++ {
+		seedMessage(t, db, 100+i, "assistant", "text", strings.Repeat("a", 5000))
+	}
+
+	var first sessionPage
+	callTool(t, cs, "get_session", map[string]any{
+		"session_id": "claude-code:sess-1", "from_seq": 100, "to_seq": 109, "max_chars": 12000,
+	}, &first)
+	if len(first.Messages) != 2 {
+		t.Fatalf("first page = %d messages, want 2 (2 x 5000 fits in 12000, a third does not)", len(first.Messages))
+	}
+	if !first.Truncated || first.NextFromSeq == nil || *first.NextFromSeq != 102 {
+		t.Fatalf("Truncated = %v, NextFromSeq = %v, want true / 102", first.Truncated, first.NextFromSeq)
+	}
+
+	// Paging on must reach every message exactly once.
+	seen := len(first.Messages)
+	next := *first.NextFromSeq
+	for pages := 0; pages < 10; pages++ {
+		var page sessionPage
+		callTool(t, cs, "get_session", map[string]any{
+			"session_id": "claude-code:sess-1", "from_seq": next, "to_seq": 109, "max_chars": 12000,
+		}, &page)
+		seen += len(page.Messages)
+		if page.NextFromSeq == nil {
+			break
+		}
+		next = *page.NextFromSeq
+	}
+	if seen != 10 {
+		t.Errorf("paged through %d messages, want 10", seen)
+	}
+
+	t.Run("a single message over the budget is still returned", func(t *testing.T) {
+		var one sessionPage
+		callTool(t, cs, "get_session", map[string]any{
+			"session_id": "claude-code:sess-1", "from_seq": 100, "to_seq": 109, "max_chars": 100,
+		}, &one)
+		if len(one.Messages) != 1 {
+			t.Errorf("messages = %d, want 1 so the caller can always make progress", len(one.Messages))
+		}
+	})
+
+	t.Run("default window reports messages beyond it", func(t *testing.T) {
+		seedMessage(t, db, 400, "user", "text", "far ahead")
+		var page sessionPage
+		callTool(t, cs, "get_session", map[string]any{"session_id": "claude-code:sess-1", "from_seq": 50, "max_chars": 60000}, &page)
+		// 50..249 holds seq 100-109 (50k chars, inside the raised budget);
+		// seq 400 lies past the 200-row window.
+		if !page.Truncated || page.NextFromSeq == nil || *page.NextFromSeq != 400 {
+			t.Errorf("Truncated = %v, NextFromSeq = %v, want true / 400", page.Truncated, page.NextFromSeq)
+		}
+	})
+}

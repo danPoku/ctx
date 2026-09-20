@@ -6,6 +6,7 @@ package mcpserver
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -21,6 +22,19 @@ const defaultRecentLimit = 20
 // deliberately instead of one call swallowing a 2,000-message transcript
 // into its context window.
 const getSessionMaxRows = 200
+
+// Size caps for get_session, in characters (a token is roughly 4 of them).
+// The row cap alone was not a real limit: 200 rows of tool results measured
+// about 39k tokens a page. So the response is also bounded by total
+// characters, and each message is cut to its own limit, with tool output
+// held to a much smaller one than conversation text because one tool result
+// can run to tens of thousands of characters.
+const (
+	getSessionDefaultChars = 20000
+	getSessionMaxChars     = 60000
+	maxTextMessageChars    = 6000
+	maxToolMessageChars    = 1500
+)
 
 type recentSessionsArgs struct {
 	Agent string `json:"agent,omitempty" jsonschema:"restrict to one agent, e.g. claude-code or codex (default: every agent)"`
@@ -48,6 +62,9 @@ type getSessionArgs struct {
 	SessionID string `json:"session_id" jsonschema:"the session id, e.g. as returned by search_context or recent_sessions"`
 	FromSeq   int    `json:"from_seq,omitempty" jsonschema:"first message sequence number to return, default 0"`
 	ToSeq     int    `json:"to_seq,omitempty" jsonschema:"last message sequence number to return; the range is capped, so a large session needs multiple calls"`
+	// IncludeTools defaults to false: only user/assistant text comes back.
+	IncludeTools bool `json:"include_tools,omitempty" jsonschema:"also return tool calls and tool results (large; default false = conversation text only)"`
+	MaxChars     int  `json:"max_chars,omitempty" jsonschema:"cap on total characters returned, default 20000, max 60000; check truncated/next_from_seq to continue"`
 }
 
 type sessionMessage struct {
@@ -57,6 +74,10 @@ type sessionMessage struct {
 	ToolName  string `json:"tool_name,omitempty"`
 	Content   string `json:"content"`
 	CreatedAt string `json:"created_at,omitempty"`
+	// ContentTruncated is set when Content was cut to the per-message
+	// limit; FullChars is the original length.
+	ContentTruncated bool `json:"content_truncated,omitempty"`
+	FullChars        int  `json:"full_chars,omitempty"`
 }
 
 type getSessionResult struct {
@@ -94,7 +115,7 @@ func (s *server) registerSessions(srv *mcp.Server) {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "get_session",
-		Description: "Read a session's messages in order, paged by sequence number. Capped per call — check `truncated` and use `next_from_seq` to keep paging through a long session.",
+		Description: "Read a session's messages in order, paged by sequence number. Returns conversation text only unless include_tools is set. Capped by total characters (max_chars) and per-message length; check `truncated` and use `next_from_seq` to continue. To read a search hit, pass its first_seq/last_seq as from_seq/to_seq rather than paging from 0.",
 	}, s.getSession)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -146,13 +167,24 @@ func (s *server) recentSessions(_ context.Context, _ *mcp.CallToolRequest, args 
 func (s *server) getSession(_ context.Context, _ *mcp.CallToolRequest, args getSessionArgs) (*mcp.CallToolResult, getSessionResult, error) {
 	fromSeq := args.FromSeq
 	toSeq := args.ToSeq
-	if toSeq <= 0 || toSeq < fromSeq {
+	// explicitRange: the caller named a range that fits under the row cap.
+	// Anything else (no to_seq, or one too wide) is a window WE chose, so
+	// there may be more beyond it that the caller didn't ask for yet.
+	explicitRange := toSeq > 0 && toSeq >= fromSeq && toSeq-fromSeq+1 <= getSessionMaxRows
+	if !explicitRange {
 		toSeq = fromSeq + getSessionMaxRows - 1
 	}
-	truncated := false
-	if toSeq-fromSeq+1 > getSessionMaxRows {
-		toSeq = fromSeq + getSessionMaxRows - 1
-		truncated = true
+
+	maxChars := args.MaxChars
+	if maxChars <= 0 {
+		maxChars = getSessionDefaultChars
+	}
+	if maxChars > getSessionMaxChars {
+		maxChars = getSessionMaxChars
+	}
+	includeTools := 0
+	if args.IncludeTools {
+		includeTools = 1
 	}
 
 	sqlText, err := store.LoadQuery(queries.FS, "retrieval.sql", "GetSessionMessages")
@@ -160,14 +192,16 @@ func (s *server) getSession(_ context.Context, _ *mcp.CallToolRequest, args getS
 		return nil, getSessionResult{}, err
 	}
 	rows, err := s.db.Query(sqlText,
-		sql.Named("session_id", args.SessionID), sql.Named("from_seq", fromSeq), sql.Named("to_seq", toSeq))
+		sql.Named("session_id", args.SessionID), sql.Named("from_seq", fromSeq), sql.Named("to_seq", toSeq),
+		sql.Named("include_tools", includeTools))
 	if err != nil {
 		return nil, getSessionResult{}, err
 	}
 	defer rows.Close()
 
-	var out getSessionResult
-	lastSeq := fromSeq - 1
+	out := getSessionResult{Messages: []sessionMessage{}}
+	used := 0
+	var resumeAt *int
 	for rows.Next() {
 		var m sessionMessage
 		var toolName, createdAt sql.NullString
@@ -175,25 +209,63 @@ func (s *server) getSession(_ context.Context, _ *mcp.CallToolRequest, args getS
 			return nil, getSessionResult{}, err
 		}
 		m.ToolName, m.CreatedAt = toolName.String, createdAt.String
+
+		limit := maxTextMessageChars
+		if m.Kind != "text" {
+			limit = maxToolMessageChars
+		}
+		if cut, full, ok := truncateChars(m.Content, limit); ok {
+			m.Content, m.ContentTruncated, m.FullChars = cut, true, full
+		}
+
+		// Stop before the message that would blow the budget, but always
+		// return at least one so a caller can never get stuck.
+		if len(out.Messages) > 0 && used+len(m.Content) > maxChars {
+			seq := m.Seq
+			resumeAt = &seq
+			break
+		}
+		used += len(m.Content)
 		out.Messages = append(out.Messages, m)
-		lastSeq = m.Seq
 	}
 	if err := rows.Err(); err != nil {
 		return nil, getSessionResult{}, err
 	}
 
-	// Also treat hitting the requested/capped range's ceiling as
-	// "truncated" even if the caller's own to_seq wasn't past the cap —
-	// there may be more messages beyond it they didn't ask for yet.
-	if lastSeq >= toSeq {
-		truncated = true
+	if resumeAt == nil && !explicitRange {
+		// We chose the window; report whether messages remain past it.
+		var next sql.NullInt64
+		q, err := store.LoadQuery(queries.FS, "retrieval.sql", "FirstMessageSeqAfter")
+		if err != nil {
+			return nil, getSessionResult{}, err
+		}
+		if err := s.db.QueryRow(q, sql.Named("session_id", args.SessionID),
+			sql.Named("after_seq", toSeq), sql.Named("include_tools", includeTools)).Scan(&next); err != nil {
+			return nil, getSessionResult{}, err
+		}
+		if next.Valid {
+			n := int(next.Int64)
+			resumeAt = &n
+		}
 	}
-	out.Truncated = truncated
-	if truncated {
-		next := lastSeq + 1
-		out.NextFromSeq = &next
+	if resumeAt != nil {
+		out.Truncated = true
+		out.NextFromSeq = resumeAt
 	}
 	return nil, out, nil
+}
+
+// truncateChars cuts s to at most n runes (never mid-character), appending a
+// marker, and reports the original length in runes.
+func truncateChars(s string, n int) (cut string, fullChars int, truncated bool) {
+	if len(s) <= n { // bytes >= runes, so this is a cheap early out
+		return s, 0, false
+	}
+	r := []rune(s)
+	if len(r) <= n {
+		return s, 0, false
+	}
+	return string(r[:n]) + fmt.Sprintf(" … [truncated, %d of %d chars shown]", n, len(r)), len(r), true
 }
 
 func (s *server) sessionsTouching(_ context.Context, _ *mcp.CallToolRequest, args sessionsTouchingArgs) (*mcp.CallToolResult, sessionsTouchingResult, error) {

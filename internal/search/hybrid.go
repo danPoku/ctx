@@ -22,7 +22,9 @@ type HybridResult struct {
 	Agent     string
 	Title     string
 	StartedAt string
-	Preview   string
+	Preview   string // hit-centred excerpt of the chunk; see centerSnippet
+	FirstSeq  int    // the chunk's message range, as in KeywordResult
+	LastSeq   int
 	At        string // when this chunk's turn happened; see KeywordResult.At
 }
 
@@ -82,10 +84,11 @@ func Hybrid(ctx context.Context, db *sql.DB, client embed.Embedder, query string
 	for rows.Next() {
 		var r HybridResult
 		var title sql.NullString
-		if err := rows.Scan(&r.ChunkID, &r.Score, &r.SessionID, &r.Agent, &title, &r.StartedAt, &r.Preview, &r.At); err != nil {
+		if err := rows.Scan(&r.ChunkID, &r.Score, &r.SessionID, &r.Agent, &title, &r.StartedAt, &r.Preview, &r.FirstSeq, &r.LastSeq, &r.At); err != nil {
 			return nil, err
 		}
 		r.Title = title.String
+		r.Preview = centerSnippet(r.Preview, query, previewChars)
 		results = append(results, r)
 	}
 	return results, rows.Err()

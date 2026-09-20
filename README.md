@@ -20,7 +20,7 @@ $ ctx search "how does the daemon embed new chunks in the background"
 
 ## Status
 
-Early. The current release is v0.1.1. It has been run on one machine, on
+Early. The current release is v0.1.2. It has been run on one machine, on
 Ubuntu under WSL2; other platforms are untested. Expect breaking changes in
 the 0.x series, including to the database schema and the MCP tool output. See
 [Limitations](#limitations) before relying on it.
@@ -56,7 +56,7 @@ the 0.x series, including to the database schema and the MCP tool output. See
 go install -tags sqlite_fts5 github.com/danPoku/ctx/cmd/ctx@latest
 ```
 
-`@latest` follows the newest tagged release. To pin one, use `@v0.1.1`. Running
+`@latest` follows the newest tagged release. To pin one, use `@v0.1.2`. Running
 `go version -m "$(command -v ctx)"` shows which version you have installed.
 
 Or from a clone:
@@ -149,15 +149,17 @@ a new chat.
 
 | Tool | What it does |
 | --- | --- |
-| `search_context` | Keyword plus semantic search over past sessions in this project, across all agents. Returns short snippets, each with the time of the turn it came from. |
-| `get_session` | Reads a session's messages in order. Paged and capped at 200 messages per call. |
+| `search_context` | Keyword plus semantic search over past sessions in this project, across all agents. Returns snippets centred on the match, each with the time of the turn and the message range (`first_seq`, `last_seq`) of the exchange it came from. |
+| `get_chunk` | Reads one search hit in full, the user turn and the assistant's reply (about 1k tokens), by `chunk_id`. |
+| `get_session` | Reads a session's messages in order. Conversation text only unless `include_tools` is set; capped by total characters (`max_chars`, default 20000) and by message length, with `next_from_seq` for paging. |
 | `recent_sessions` | Lists recent sessions, newest first. |
 | `sessions_touching` | Sessions that read or edited a given file. |
 | `save_note` | Records a decision, gotcha, convention, todo, or fact. |
 | `search_notes` | Searches saved notes. |
 
 Search returns snippets on purpose. An agent that wants the full exchange calls
-`get_session` with the session id and a sequence range.
+`get_chunk` with the hit's `chunk_id`, or `get_session` with the session id and
+the hit's `first_seq` and `last_seq`.
 
 ## Commands
 
