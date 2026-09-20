@@ -20,10 +20,10 @@ $ ctx search "how does the daemon embed new chunks in the background"
 
 ## Status
 
-Early. It has been run on one machine, by its author, on Ubuntu under WSL2;
-other platforms are untested. There is no tagged release, and the database
-schema and MCP tool output can still change. See
-[Limitations](#limitations) before relying on it.
+Early. The current release is v0.1.0. It has been run on one machine, by its
+author, on Ubuntu under WSL2; other platforms are untested. Expect breaking
+changes in the 0.x series, including to the database schema and the MCP tool
+output. See [Limitations](#limitations) before relying on it.
 
 ## What it does
 
@@ -56,7 +56,10 @@ schema and MCP tool output can still change. See
 go install -tags sqlite_fts5 github.com/danPoku/ctx/cmd/ctx@latest
 ```
 
-or from a clone:
+`@latest` follows the newest tagged release. To pin one, use `@v0.1.0`. Running
+`go version -m "$(command -v ctx)"` shows which version you have installed.
+
+Or from a clone:
 
 ```
 git clone https://github.com/danPoku/ctx
