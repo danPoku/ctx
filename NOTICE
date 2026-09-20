@@ -1,0 +1,19 @@
+ctx
+Copyright 2026 Dan Gyinaye Poku <dan.gyinaye@gmail.com>
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+Third-party code
+----------------
+internal/vecext/sqlite-vec.c and sqlite-vec.h are vendored from
+github.com/asg017/sqlite-vec-go-bindings v0.1.6 (sqlite-vec, by Alex Garcia).
+The upstream repository's license terms apply to those two files; see
+https://github.com/asg017/sqlite-vec.
+
+internal/vecext/sqlite3.h is an unmodified copy of sqlite3-binding.h from
+github.com/mattn/go-sqlite3 v1.14.52, renamed so an #include resolves. It
+carries the SQLite public-domain dedication in its header.
+
+Go module dependencies (github.com/mattn/go-sqlite3, the MCP Go SDK,
+fsnotify, and others listed in go.mod) are used under their own licenses and
+are not redistributed in this repository.
