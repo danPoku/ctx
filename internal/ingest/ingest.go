@@ -70,6 +70,11 @@ func Run(db *sql.DB, adapter Adapter, path string) error {
 	}
 
 	byteOffset := src.ByteOffset
+	// rewound is true when we had already ingested part of this file but must
+	// now start over (rewritten, rotated, or truncated). Sessions it holds
+	// then get their old rows replaced rather than appended to; see
+	// processLine.
+	rewound := false
 	if byteOffset > 0 {
 		// The fingerprint is the hash of the bytes we'd ALREADY consumed as
 		// of the last run (capped at 4KB) — never "whatever's in the first
@@ -86,11 +91,13 @@ func Run(db *sql.DB, adapter Adapter, path string) error {
 			// The file was rewritten or rotated since we last read it: our
 			// bookmark no longer means anything, start over.
 			byteOffset = 0
+			rewound = true
 		}
 	}
 	if byteOffset > info.Size() {
 		// The file shrank (truncated/replaced): same story.
 		byteOffset = 0
+		rewound = true
 	}
 
 	if _, err := f.Seek(byteOffset, io.SeekStart); err != nil {
@@ -114,6 +121,10 @@ func Run(db *sql.DB, adapter Adapter, path string) error {
 	r := bufio.NewReaderSize(f, 64*1024)
 	toolNames := map[string]string{} // tool_use id -> tool name, this run only; see adapter doc
 	sessionSeq := map[string]int{}   // session id -> next seq to assign
+	var purged map[string]bool       // non-nil only when rewound: sessions whose old rows are already cleared
+	if rewound {
+		purged = map[string]bool{}
+	}
 	touched := map[string]bool{}
 	var lastErr string
 	consumed := byteOffset
@@ -136,7 +147,7 @@ func Run(db *sql.DB, adapter Adapter, path string) error {
 		if len(bytes.TrimSpace(trimmed)) == 0 {
 			continue
 		}
-		sid, err := processLine(db, adapter, trimmed, toolNames, sessionSeq)
+		sid, err := processLine(db, adapter, trimmed, toolNames, sessionSeq, purged)
 		if err != nil {
 			lastErr = err.Error()
 			continue
@@ -194,7 +205,7 @@ func headHashUpTo(f *os.File, offset int64) (string, error) {
 // chunking afterward), or "" if the line carried no session information at
 // all (shouldn't happen for a well-formed conversational or ai-title line,
 // but Skip lines legitimately return "").
-func processLine(db *sql.DB, adapter Adapter, line []byte, toolNames map[string]string, sessionSeq map[string]int) (string, error) {
+func processLine(db *sql.DB, adapter Adapter, line []byte, toolNames map[string]string, sessionSeq map[string]int, purged map[string]bool) (string, error) {
 	res, err := adapter.ParseLine(line)
 	if err != nil {
 		return "", err
@@ -210,6 +221,25 @@ func processLine(db *sql.DB, adapter Adapter, line []byte, toolNames map[string]
 	projectID, err := upsertSession(db, sessionID, adapter.Agent(), res.Session, res.Message)
 	if err != nil {
 		return sessionID, err
+	}
+
+	if purged != nil && !purged[sessionID] {
+		// The file was rewritten and we are re-reading it from byte 0, so
+		// the rows we stored last time describe a version of the file that no
+		// longer exists. Appending would leave every message in there twice:
+		// seq would continue from MAX(seq)+1 and never collide with
+		// UNIQUE(session_id, seq). Like replacing a reissued statement, throw
+		// the old pages away first — the first time this session shows up,
+		// even if the new version has no message for it yet. file_touches go
+		// with their messages (ON DELETE CASCADE); chunks are keyed by
+		// session, and their vectors are removed by the chunks_vec_ad trigger.
+		if _, err := db.Exec(`DELETE FROM chunks WHERE session_id = ?`, sessionID); err != nil {
+			return sessionID, err
+		}
+		if _, err := db.Exec(`DELETE FROM messages WHERE session_id = ?`, sessionID); err != nil {
+			return sessionID, err
+		}
+		purged[sessionID] = true
 	}
 
 	if res.Message == nil {

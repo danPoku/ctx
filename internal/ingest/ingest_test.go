@@ -363,3 +363,80 @@ func TestRunResumeWithFreshAdapterKeepsCodexSessionID(t *testing.T) {
 		t.Errorf("messages after resume = %d, want %d (same as a one-shot ingest)", withResume, want)
 	}
 }
+
+// When a file is rewritten (its already-read prefix changes) or shrinks, Run
+// starts over from byte 0. The rows from the old version must be replaced,
+// not joined by a second copy of every message.
+func TestRunRewrittenFileReplacesRowsInsteadOfDuplicating(t *testing.T) {
+	t.Run("truncated then rewritten shorter", func(t *testing.T) {
+		db := openTestDB(t)
+		path := copyFixture(t, "claudecode/testdata/session.jsonl")
+		if err := ingest.Run(db, claudecode.New(), path); err != nil {
+			t.Fatalf("first Run: %v", err)
+		}
+		var before int
+		db.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&before)
+
+		// Replace the file with just its first half: smaller than the stored
+		// offset, but still holding real messages for the same session (a
+		// shrunk file that no longer mentions a session at all leaves that
+		// session's old rows alone — sources doesn't record which sessions a
+		// file produced).
+		full, _ := os.ReadFile(path)
+		lines := strings.SplitAfter(string(full), "\n")
+		half := strings.Join(lines[:len(lines)/2], "")
+		if err := os.WriteFile(path, []byte(half), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := ingest.Run(db, claudecode.New(), path); err != nil {
+			t.Fatalf("Run after truncation: %v", err)
+		}
+		var after int
+		db.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&after)
+		if after >= before {
+			t.Errorf("messages after shrink = %d, want fewer than the %d from the old version", after, before)
+		}
+		var maxSeq, n int
+		db.QueryRow(`SELECT COALESCE(MAX(seq),-1), COUNT(*) FROM messages`).Scan(&maxSeq, &n)
+		if n > 0 && maxSeq != n-1 {
+			t.Errorf("seq not restarted from 0: max=%d count=%d", maxSeq, n)
+		}
+	})
+
+	t.Run("prefix altered, same length", func(t *testing.T) {
+		db := openTestDB(t)
+		path := copyFixture(t, "codex/testdata/session.jsonl")
+		if err := ingest.Run(db, codex.New(), path); err != nil {
+			t.Fatalf("first Run: %v", err)
+		}
+		var before, chunksBefore int
+		db.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&before)
+		db.QueryRow(`SELECT COUNT(*) FROM chunks`).Scan(&chunksBefore)
+
+		// Change a byte inside the first 4KB we already hashed, keeping the
+		// length (and so the offset) the same: the "rewritten" branch, not the "shrunk" one.
+		orig, _ := os.ReadFile(path)
+		changed := append([]byte(nil), orig...)
+		i := strings.Index(string(changed), "codex")
+		if i < 0 || i >= 4096 {
+			t.Fatalf("fixture has no 'codex' within its first 4KB to alter (index %d)", i)
+		}
+		changed[i] = 'C'
+		if err := os.WriteFile(path, changed, 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := ingest.Run(db, codex.New(), path); err != nil {
+			t.Fatalf("Run after rewrite: %v", err)
+		}
+
+		var after, chunksAfter int
+		db.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&after)
+		db.QueryRow(`SELECT COUNT(*) FROM chunks`).Scan(&chunksAfter)
+		if after != before {
+			t.Errorf("messages after rewrite = %d, want %d (replaced, not appended)", after, before)
+		}
+		if chunksAfter != chunksBefore {
+			t.Errorf("chunks after rewrite = %d, want %d", chunksAfter, chunksBefore)
+		}
+	})
+}
