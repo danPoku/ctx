@@ -83,8 +83,94 @@ func Migrate(db *sql.DB) (MigrateResult, error) {
 	if err != nil {
 		return MigrateResult{}, fmt.Errorf("read 002_vectors.sql: %w", err)
 	}
+	result := MigrateResult{VectorsLoaded: true}
 	if _, err := db.Exec(string(vectors)); err != nil {
-		return MigrateResult{VectorsLoaded: false, VectorsErr: err}, nil
+		result = MigrateResult{VectorsLoaded: false, VectorsErr: err}
 	}
-	return MigrateResult{VectorsLoaded: true}, nil
+	if err := migrateSessionGit(db); err != nil {
+		return MigrateResult{}, err
+	}
+	if err := migrateTouchRooted(db); err != nil {
+		return MigrateResult{}, err
+	}
+	if err := migrateCommitSource(db); err != nil {
+		return MigrateResult{}, err
+	}
+	return result, nil
+}
+
+type column struct{ name, decl string }
+
+// migrateSessionGit is migration 003: it adds sessions.starting_commit and
+// sessions.ending_commit to databases created before v0.1.4. Fresh databases
+// already have both from 001_core.sql.
+func migrateSessionGit(db *sql.DB) error {
+	return addColumns(db, 3, "session_git", "sessions",
+		column{"starting_commit", "TEXT"}, column{"ending_commit", "TEXT"})
+}
+
+// migrateTouchRooted is migration 004: file_touches.rooted says whether a
+// row's path was computed relative to the git repository root (1) or by the
+// older rule, relative to the session's working directory (0). Rows from
+// before v0.1.4 default to 0, which is what `ctx repair git` looks for.
+func migrateTouchRooted(db *sql.DB) error {
+	return addColumns(db, 4, "touch_rooted", "file_touches",
+		column{"rooted", "INTEGER NOT NULL DEFAULT 0"})
+}
+
+// migrateCommitSource is migration 005: sessions.commit_source records how
+// starting/ending_commit were obtained (see the Source* constants), so a
+// commit that is only a best guess can be shown as one. NULL means either no
+// commit, or one stored before this column existed and not yet re-derived by
+// `ctx repair git`.
+func migrateCommitSource(db *sql.DB) error {
+	return addColumns(db, 5, "commit_source", "sessions", column{"commit_source", "TEXT"})
+}
+
+// addColumns is the shared shape of the ALTER-based migrations. It lives in
+// Go rather than a .sql file because SQLite has no ADD COLUMN IF NOT EXISTS:
+// the honest way to be idempotent is to look at PRAGMA table_info and add
+// only what is missing. Doing the check-then-alter inside one transaction
+// also means a crash between two ALTERs cannot leave a half-migrated table
+// with no version row, and two processes racing to migrate (the daemon and a
+// CLI call) serialise on the write lock — the loser re-checks inside its own
+// transaction and finds nothing left to do.
+func addColumns(db *sql.DB, version int, name, table string, cols ...column) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin migration %03d: %w", version, err)
+	}
+	defer tx.Rollback() // no-op once committed
+
+	have := map[string]bool{}
+	rows, err := tx.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return fmt.Errorf("inspect %s columns: %w", table, err)
+	}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			rows.Close()
+			return err
+		}
+		have[n] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, c := range cols {
+		if have[c.name] {
+			continue
+		}
+		if _, err := tx.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + c.name + ` ` + c.decl); err != nil {
+			return fmt.Errorf("add %s.%s: %w", table, c.name, err)
+		}
+	}
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO schema_migrations(version, name) VALUES (?, ?)`, version, name); err != nil {
+		return fmt.Errorf("record migration %03d: %w", version, err)
+	}
+	return tx.Commit()
 }

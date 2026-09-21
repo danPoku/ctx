@@ -26,6 +26,7 @@ import (
 type server struct {
 	db          *sql.DB
 	projectID   int64
+	cwd         string
 	embedClient embed.Embedder
 }
 
@@ -40,12 +41,13 @@ func New(db *sql.DB, cwd string, embedClient embed.Embedder) (*mcp.Server, error
 	if err != nil {
 		return nil, fmt.Errorf("resolve project for %s: %w", cwd, err)
 	}
-	s := &server{db: db, projectID: projectID, embedClient: embedClient}
+	s := &server{db: db, projectID: projectID, cwd: cwd, embedClient: embedClient}
 
-	srv := mcp.NewServer(&mcp.Implementation{Name: "ctx", Version: "0.1.3"}, nil)
+	srv := mcp.NewServer(&mcp.Implementation{Name: "ctx", Version: "0.1.4-dev"}, nil)
 	s.registerSearch(srv)
 	s.registerChunk(srv)
 	s.registerSessions(srv)
 	s.registerNotes(srv)
+	s.registerExplain(srv)
 	return srv, nil
 }

@@ -5,6 +5,7 @@ package ingest
 
 import (
 	"database/sql"
+	"fmt"
 
 	"github.com/danPoku/kaectx/internal/store"
 )
@@ -28,11 +29,22 @@ func upsertSession(db *sql.DB, sessionID, agent string, upd SessionUpdate, msg *
 		_, err := db.Exec(`UPDATE sessions SET
 		                       cwd        = COALESCE(NULLIF(?, ''), cwd),
 		                       git_branch = COALESCE(NULLIF(?, ''), git_branch),
+		                       starting_commit = COALESCE(starting_commit, NULLIF(?, '')),
+		                       ending_commit = COALESCE(NULLIF(?, ''), ending_commit),
+		                       -- A span is only as trustworthy as its weakest end, so the
+		                       -- source can worsen as lines arrive but never improve.
+		                       commit_source = CASE
+		                           WHEN ? = '' THEN commit_source
+		                           WHEN commit_source IS NULL THEN ?
+		                           WHEN `+sourceRankSQL("?")+` > `+sourceRankSQL("commit_source")+` THEN ?
+		                           ELSE commit_source END,
 		                       model      = COALESCE(NULLIF(?, ''), model),
 		                       title      = COALESCE(NULLIF(?, ''), title),
 		                       ended_at   = CASE WHEN ? > COALESCE(ended_at, '') THEN ? ELSE ended_at END
 		                     WHERE id = ?`,
-			upd.CWD, upd.GitBranch, upd.Model, upd.Title, upd.Timestamp, upd.Timestamp, sessionID)
+			upd.CWD, upd.GitBranch, upd.GitCommit, upd.GitCommit,
+			upd.CommitSource, upd.CommitSource, upd.CommitSource, upd.CommitSource,
+			upd.Model, upd.Title, upd.Timestamp, upd.Timestamp, sessionID)
 		return nullInt64ToAny(projectID), err
 	}
 
@@ -53,10 +65,11 @@ func upsertSession(db *sql.DB, sessionID, agent string, upd SessionUpdate, msg *
 		title = truncate(msg.Content, 80)
 	}
 
-	_, err = db.Exec(`INSERT INTO sessions(id, agent, native_id, project_id, cwd, git_branch, model, started_at, ended_at, title)
-	                   VALUES (?,?,?,?,?,?,?,?,?,?)`,
+	_, err = db.Exec(`INSERT INTO sessions(id, agent, native_id, project_id, cwd, git_branch, starting_commit, ending_commit, commit_source, model, started_at, ended_at, title)
+	                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		sessionID, agent, upd.NativeID, newProjectID,
-		nullIfEmpty(upd.CWD), nullIfEmpty(upd.GitBranch), nullIfEmpty(upd.Model),
+		nullIfEmpty(upd.CWD), nullIfEmpty(upd.GitBranch), nullIfEmpty(upd.GitCommit), nullIfEmpty(upd.GitCommit),
+		nullIfEmpty(upd.CommitSource), nullIfEmpty(upd.Model),
 		upd.Timestamp, upd.Timestamp, nullIfEmpty(title))
 	return newProjectID, err
 }
@@ -74,4 +87,17 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "…"
+}
+
+// sourceRankSQL renders store.SourceRank as a SQL expression over expr, so
+// "which source is weaker" is decided by the one Go table instead of a copy
+// of it that could drift.
+func sourceRankSQL(expr string) string {
+	out := "CASE " + expr
+	for src, rank := range store.SourceRank {
+		if src != "" {
+			out += fmt.Sprintf(" WHEN '%s' THEN %d", src, rank)
+		}
+	}
+	return out + " ELSE 0 END"
 }

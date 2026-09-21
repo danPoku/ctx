@@ -220,12 +220,12 @@ func TestFileTouchExtraction(t *testing.T) {
 			if res.Message == nil {
 				t.Fatalf("Message = nil")
 			}
-			got := res.Message.FileTouch
-			if (got == nil) != (c.wantTouch == nil) {
-				t.Fatalf("FileTouch = %+v, want %+v", got, c.wantTouch)
+			got := res.Message.FileTouches
+			if (len(got) == 0) != (c.wantTouch == nil) {
+				t.Fatalf("FileTouches = %+v, want %+v", got, c.wantTouch)
 			}
-			if got != nil && (*got != *c.wantTouch) {
-				t.Errorf("FileTouch = %+v, want %+v", *got, *c.wantTouch)
+			if len(got) > 0 && (len(got) != 1 || got[0] != *c.wantTouch) {
+				t.Errorf("FileTouches = %+v, want [%+v]", got, *c.wantTouch)
 			}
 		})
 	}

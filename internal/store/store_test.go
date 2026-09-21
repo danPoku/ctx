@@ -160,9 +160,9 @@ func TestMigrateTwiceIsANoOp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Migrate: %v", err)
 	}
-	want := 1
+	want := 4 // core, session_git, touch_rooted, commit_source
 	if first.VectorsLoaded {
-		want = 2
+		want = 5
 	}
 
 	var count int
@@ -186,6 +186,52 @@ func TestMigrateTwiceIsANoOp(t *testing.T) {
 	}
 	if count != want {
 		t.Errorf("schema_migrations has %d rows after second Migrate, want %d (idempotent)", count, want)
+	}
+}
+
+func TestMigrateAddsSessionGitColumnsToExistingDatabase(t *testing.T) {
+	db := openTestDB(t)
+	if _, err := db.Exec(`CREATE TABLE schema_migrations (
+		version INTEGER PRIMARY KEY,
+		name TEXT NOT NULL,
+		applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+	) STRICT`); err != nil {
+		t.Fatalf("create schema_migrations: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE sessions (
+		id TEXT PRIMARY KEY,
+		agent TEXT NOT NULL,
+		native_id TEXT NOT NULL,
+		started_at TEXT NOT NULL
+	) STRICT`); err != nil {
+		t.Fatalf("create old sessions table: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO schema_migrations(version, name) VALUES (1, 'core')`); err != nil {
+		t.Fatalf("seed migration row: %v", err)
+	}
+
+	if err := migrateSessionGit(db); err != nil {
+		t.Fatalf("migrateSessionGit: %v", err)
+	}
+
+	cols := map[string]bool{}
+	rows, err := db.Query(`PRAGMA table_info(sessions)`)
+	if err != nil {
+		t.Fatalf("table_info: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			t.Fatalf("scan table_info: %v", err)
+		}
+		cols[name] = true
+	}
+	if !cols["starting_commit"] || !cols["ending_commit"] {
+		t.Fatalf("sessions columns = %v, want starting_commit and ending_commit", cols)
 	}
 }
 
@@ -231,5 +277,161 @@ func TestVec0ActuallyWorks(t *testing.T) {
 	}
 	if gotID != 1 {
 		t.Errorf("KNN match = id %d, want 1 (the identical vector, not the distant one)", gotID)
+	}
+}
+
+func sessionColumns(t *testing.T, db *sql.DB) map[string]bool {
+	t.Helper()
+	cols := map[string]bool{}
+	rows, err := db.Query(`SELECT name FROM pragma_table_info('sessions')`)
+	if err != nil {
+		t.Fatalf("table_info: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		cols[name] = true
+	}
+	return cols
+}
+
+func migrationRecorded(t *testing.T, db *sql.DB, version int) bool {
+	t.Helper()
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, version).Scan(&n); err != nil {
+		t.Fatalf("count migrations: %v", err)
+	}
+	return n == 1
+}
+
+// A pre-v0.1.4 database has neither column; the migration must add both and
+// record itself, and running it again must be a no-op.
+func TestMigrateSessionGitOnOldDatabaseIsRecordedAndIdempotent(t *testing.T) {
+	db := openTestDB(t)
+	mustExec(t, db, `CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL,
+		applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))) STRICT`)
+	mustExec(t, db, `CREATE TABLE sessions (id TEXT PRIMARY KEY, agent TEXT NOT NULL, native_id TEXT NOT NULL, started_at TEXT NOT NULL) STRICT`)
+
+	for i := 0; i < 2; i++ {
+		if err := migrateSessionGit(db); err != nil {
+			t.Fatalf("run %d: %v", i+1, err)
+		}
+	}
+	cols := sessionColumns(t, db)
+	if !cols["starting_commit"] || !cols["ending_commit"] {
+		t.Fatalf("columns = %v, want both commit columns", cols)
+	}
+	if !migrationRecorded(t, db, 3) {
+		t.Error("migration 003 not recorded exactly once")
+	}
+}
+
+// A table that already has one of the columns (a crash mid-way under the old
+// non-transactional code, or a fresh 001_core) must gain only the missing one
+// instead of failing with "duplicate column name".
+func TestMigrateSessionGitAddsOnlyTheMissingColumn(t *testing.T) {
+	db := openTestDB(t)
+	mustExec(t, db, `CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL,
+		applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))) STRICT`)
+	mustExec(t, db, `CREATE TABLE sessions (id TEXT PRIMARY KEY, agent TEXT NOT NULL, native_id TEXT NOT NULL,
+		started_at TEXT NOT NULL, starting_commit TEXT) STRICT`)
+	mustExec(t, db, `INSERT INTO sessions VALUES ('a','codex','n','2026-01-01T00:00:00Z','abc')`)
+
+	if err := migrateSessionGit(db); err != nil {
+		t.Fatalf("migrateSessionGit: %v", err)
+	}
+	if !sessionColumns(t, db)["ending_commit"] {
+		t.Error("ending_commit not added")
+	}
+	var start string
+	if err := db.QueryRow(`SELECT starting_commit FROM sessions WHERE id='a'`).Scan(&start); err != nil || start != "abc" {
+		t.Errorf("existing data = %q, %v; want it preserved", start, err)
+	}
+}
+
+// If the migration fails part-way it must roll back completely: no version
+// row, and no half-added column.
+func TestMigrateSessionGitRollsBackOnFailure(t *testing.T) {
+	db := openTestDB(t)
+	mustExec(t, db, `CREATE TABLE sessions (id TEXT PRIMARY KEY, agent TEXT NOT NULL, native_id TEXT NOT NULL, started_at TEXT NOT NULL) STRICT`)
+	// No schema_migrations table: the final INSERT fails after both ALTERs.
+	if err := migrateSessionGit(db); err == nil {
+		t.Fatal("expected an error when schema_migrations is missing")
+	}
+	cols := sessionColumns(t, db)
+	if cols["starting_commit"] || cols["ending_commit"] {
+		t.Errorf("columns = %v, want the ALTERs rolled back", cols)
+	}
+}
+
+// Fresh databases get the columns from 001_core; Migrate must still record 003
+// and a second Migrate must not fail.
+func TestMigrateFreshDatabaseRecordsSessionGit(t *testing.T) {
+	db := openTestDB(t)
+	for i := 0; i < 2; i++ {
+		if _, err := Migrate(db); err != nil {
+			t.Fatalf("Migrate #%d: %v", i+1, err)
+		}
+	}
+	for _, v := range []int{3, 4, 5} {
+		if !migrationRecorded(t, db, v) {
+			t.Errorf("migration %03d not recorded on a fresh database", v)
+		}
+	}
+	if cols := sessionColumns(t, db); !cols["starting_commit"] || !cols["ending_commit"] {
+		t.Errorf("columns = %v", cols)
+	}
+}
+
+func mustExec(t *testing.T, db *sql.DB, q string, args ...any) {
+	t.Helper()
+	if _, err := db.Exec(q, args...); err != nil {
+		t.Fatalf("exec %q: %v", q, err)
+	}
+}
+
+// Migration 004: old file_touches rows must survive and read back as
+// "not rooted" (0), so `ctx repair git` knows to upgrade them.
+func TestMigrateTouchRootedKeepsOldRowsUnrooted(t *testing.T) {
+	db := openTestDB(t)
+	mustExec(t, db, `CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL,
+		applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))) STRICT`)
+	mustExec(t, db, `CREATE TABLE file_touches (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, path TEXT NOT NULL, action TEXT NOT NULL) STRICT`)
+	mustExec(t, db, `INSERT INTO file_touches(session_id, path, action) VALUES ('s','x.go','edit')`)
+
+	for i := 0; i < 2; i++ {
+		if err := migrateTouchRooted(db); err != nil {
+			t.Fatalf("run %d: %v", i+1, err)
+		}
+	}
+	var rooted int
+	if err := db.QueryRow(`SELECT rooted FROM file_touches`).Scan(&rooted); err != nil || rooted != 0 {
+		t.Errorf("rooted = %d, %v; want old rows to read 0", rooted, err)
+	}
+	if !migrationRecorded(t, db, 4) {
+		t.Error("migration 004 not recorded exactly once")
+	}
+}
+
+func TestMigrateCommitSourceAddsANullableColumn(t *testing.T) {
+	db := openTestDB(t)
+	mustExec(t, db, `CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL,
+		applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))) STRICT`)
+	mustExec(t, db, `CREATE TABLE sessions (id TEXT PRIMARY KEY, agent TEXT NOT NULL, native_id TEXT NOT NULL, started_at TEXT NOT NULL) STRICT`)
+	mustExec(t, db, `INSERT INTO sessions VALUES ('a','codex','n','2026-01-01T00:00:00Z')`)
+	for i := 0; i < 2; i++ {
+		if err := migrateCommitSource(db); err != nil {
+			t.Fatalf("run %d: %v", i+1, err)
+		}
+	}
+	var src *string
+	if err := db.QueryRow(`SELECT commit_source FROM sessions`).Scan(&src); err != nil || src != nil {
+		t.Errorf("commit_source = %v, %v; want NULL for existing rows", src, err)
+	}
+	if !migrationRecorded(t, db, 5) {
+		t.Error("migration 005 not recorded exactly once")
 	}
 }

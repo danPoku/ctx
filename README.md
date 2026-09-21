@@ -22,10 +22,15 @@ $ ctx search "how does the daemon embed new chunks in the background"
 
 ## Status
 
-Early. The current release is v0.1.3. It has been run on one machine, on
-Ubuntu under WSL2; other platforms are untested. Expect breaking changes in
-the 0.x series, including to the database schema and the MCP tool output. See
+Early. The current tagged release is v0.1.3; `master` includes unreleased
+v0.1.4 work toward file-aware memory. It has been run on one machine, on Ubuntu
+under WSL2; other platforms are untested. Expect breaking changes in the 0.x
+series, including to the database schema and the MCP tool output. See
 [Limitations](#limitations) before relying on it.
+
+Articles written before v0.1.4 describe the v0.1.3 feature set. They are still
+useful as snapshots of the original local-search release; pin `@v0.1.3` if you
+want exactly what those articles show.
 
 ## What it does
 
@@ -38,6 +43,10 @@ the 0.x series, including to the database schema and the MCP tool output. See
   fusion.
 - Groups sessions into projects by the normalised git remote of their working
   directory, so the same repository checked out in two places is one project.
+- Records the git commit range a session ran against, resolved from the log's
+  own timestamps, when its working directory is a git checkout.
+- Explains a file from memory: which sessions touched it, what actions they
+  took, and where to open the relevant exchange.
 - Serves the history over MCP, so Claude Code, Codex, or any MCP client can
   search it, page through a session, and save notes.
 - Redacts API keys and similar secrets before anything is written to disk.
@@ -109,11 +118,26 @@ ctx ingest                        # reads ~/.claude/projects and ~/.codex/sessio
 ollama pull nomic-embed-text      # optional, enables semantic search
 ctx embed                         # embeds chunks that don't have vectors yet
 ctx search "refresh token race"   # searches the project you are standing in
+ctx explain internal/auth.go      # shows past sessions that touched a file
 ```
 
 `ctx search` is scoped to the project that contains your current directory. Use
 `--agent claude-code` or `--agent codex` to restrict results to one agent, and
 `--limit N` to change how many come back.
+
+After upgrading from an older version, run these once (add `--dry-run` to see
+what they would do first). Both read only what is already in the database, are
+safe to repeat, and run in a single transaction:
+
+- `ctx repair touches` rebuilds file records for Codex `apply_patch` calls
+  ingested before ctx could read them, from the patch text already stored.
+- `ctx repair git` recomputes each session's git commit span from its own
+  timestamps and rewrites older working-directory-relative file paths to be
+  repo-root-relative. Rows whose directory no longer exists are retried on the
+  next run.
+
+`ctx explain <path>` is also project-scoped. The path is project-relative, such
+as `internal/store/store.go`.
 
 ## Running it continuously
 
@@ -185,6 +209,7 @@ a new chat.
 | `get_session` | Reads a session's messages in order. Conversation text only unless `include_tools` is set; capped by total characters (`max_chars`, default 20000) and by message length, with `next_from_seq` for paging. |
 | `recent_sessions` | Lists recent sessions, newest first. |
 | `sessions_touching` | Sessions that read or edited a given file. |
+| `explain_file` | Builds a compact briefing for a file: sessions that touched it, actions, known git commit span, and chunk ids to open for the reasoning behind the work. |
 | `save_note` | Records a decision, gotcha, convention, todo, or fact. |
 | `search_notes` | Searches saved notes. |
 
@@ -287,9 +312,25 @@ way.
   so a new version can break an adapter.
 - kaectx reads logs on the machine it runs on. Under WSL that means agents have to
   run inside WSL. Windows-native agents write to `C:\Users\…` and are not read.
-- File-touch tracking (`sessions_touching`) only covers Claude Code's Read,
-  Edit, MultiEdit and Write tools. Codex tool calls and edits made through a
-  shell command are not recorded.
+- File-touch tracking (`sessions_touching`, `explain_file`, `ctx explain`) covers
+  Claude Code's Read, Edit, MultiEdit and Write tools and Codex's `apply_patch`.
+  Other Codex tool calls and edits made through a shell command are not
+  recorded. Paths are stored relative to the git repository root, so a session
+  started in a subdirectory and one started at the root agree on the file's name.
+  Outside a git checkout they are relative to the session's working directory.
+- Git commit ranges are best effort, and `ctx explain` says how far to trust
+  each one. Commits read from the session's own branch are shown plainly.
+  Codex logs no branch, and a deleted branch is gone, so those spans are read
+  from the current HEAD's history and marked *approximate*. A span kept from an
+  older version whose repository has since disappeared is marked *unverified*.
+  The MCP `explain_file` result carries the same information as `commit_source`
+  and `commit_approximate`.
+  A span is the newest commit on the session's branch (or HEAD, if that branch
+  is unknown or gone) at the time of the first and last log lines, read from the
+  checkout's first-parent history, so old sessions get the commit they actually
+  started from. If the logged working
+  directory is not a git checkout, or has no commit that old, the fields stay
+  empty.
 - The 0.50 distance cutoff was measured on about 60 chunks with
   `nomic-embed-text`. Expect to revisit it with a larger history or a different
   model.

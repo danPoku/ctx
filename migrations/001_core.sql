@@ -96,6 +96,9 @@ CREATE TABLE IF NOT EXISTS sessions (
 
     cwd                TEXT,
     git_branch         TEXT,
+    starting_commit    TEXT,                    -- commit checked out when the session began (resolved from the log timestamp, not ingest time)
+    ending_commit      TEXT,                    -- commit checked out at the latest log line; older DBs get both via migrateSessionGit
+    commit_source      TEXT,                    -- 'branch' | 'head' | 'unverified' | 'logged': how much to trust the two commits above; NULL = none or not yet derived (migrateCommitSource for older DBs)
     model              TEXT,                    -- e.g. 'claude-opus-5', last model seen
     started_at         TEXT    NOT NULL,
     ended_at           TEXT,                    -- NULL while the session is live
@@ -212,9 +215,13 @@ CREATE TABLE IF NOT EXISTS file_touches (
     session_id  TEXT    NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     message_id  INTEGER REFERENCES messages(id) ON DELETE CASCADE,
     project_id  INTEGER REFERENCES projects(id) ON DELETE CASCADE,
-    path        TEXT    NOT NULL,               -- project-relative: 'src/auth/token.go'
+    path        TEXT    NOT NULL,               -- repo-root-relative: 'src/auth/token.go'
     action      TEXT    NOT NULL CHECK (action IN ('read','edit','create','delete','rename')),
-    created_at  TEXT
+    created_at  TEXT,
+    -- 1 when path was made relative to the git repo root (v0.1.4+), 0 for rows
+    -- written by the older cwd-relative rule; `ctx repair git` upgrades those.
+    -- Older DBs get this column via migrateTouchRooted.
+    rooted      INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_touches_path    ON file_touches(project_id, path);

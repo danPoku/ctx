@@ -159,7 +159,9 @@ func (a Adapter) parseConversational(l line, raw []byte) (ingest.ParseResult, er
 		msg.Role, msg.Kind = l.Message.Role, "tool_call"
 		msg.ToolName, msg.ToolUseID = b.Name, b.ID
 		msg.Content = string(b.Input)
-		msg.FileTouch = fileTouchFor(b.Name, b.Input)
+		if ft := fileTouchFor(b.Name, b.Input); ft != nil {
+			msg.FileTouches = []ingest.FileTouch{*ft}
+		}
 	case "tool_result":
 		// A tool result is logged under role=user in the raw format (it's
 		// how the Anthropic API represents "continue the conversation with
