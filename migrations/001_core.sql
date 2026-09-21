@@ -218,7 +218,7 @@ CREATE TABLE IF NOT EXISTS file_touches (
     path        TEXT    NOT NULL,               -- repo-root-relative: 'src/auth/token.go'
     action      TEXT    NOT NULL CHECK (action IN ('read','edit','create','delete','rename')),
     created_at  TEXT,
-    -- 1 when path was made relative to the git repo root (v0.1.4+), 0 for rows
+    -- 1 when path was made relative to the git repo root (newer builds), 0 for rows
     -- written by the older cwd-relative rule; `ctx repair git` upgrades those.
     -- Older DBs get this column via migrateTouchRooted.
     rooted      INTEGER NOT NULL DEFAULT 0

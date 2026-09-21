@@ -55,7 +55,7 @@ type fixture struct {
 	commits []string
 }
 
-// legacyDB builds a database as v0.1.3 / the first v0.1.4 draft would have
+// legacyDB builds a database as v0.1.3 or the first file-aware-memory draft would have
 // left it: commits stamped with HEAD, paths relative to the session cwd, and
 // every file_touch un-rooted.
 func legacyDB(t *testing.T) fixture {

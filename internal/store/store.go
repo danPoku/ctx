@@ -102,7 +102,7 @@ func Migrate(db *sql.DB) (MigrateResult, error) {
 type column struct{ name, decl string }
 
 // migrateSessionGit is migration 003: it adds sessions.starting_commit and
-// sessions.ending_commit to databases created before v0.1.4. Fresh databases
+// sessions.ending_commit to databases created before file-aware memory landed. Fresh databases
 // already have both from 001_core.sql.
 func migrateSessionGit(db *sql.DB) error {
 	return addColumns(db, 3, "session_git", "sessions",
@@ -112,7 +112,7 @@ func migrateSessionGit(db *sql.DB) error {
 // migrateTouchRooted is migration 004: file_touches.rooted says whether a
 // row's path was computed relative to the git repository root (1) or by the
 // older rule, relative to the session's working directory (0). Rows from
-// before v0.1.4 default to 0, which is what `ctx repair git` looks for.
+// before it default to 0, which is what `ctx repair git` looks for.
 func migrateTouchRooted(db *sql.DB) error {
 	return addColumns(db, 4, "touch_rooted", "file_touches",
 		column{"rooted", "INTEGER NOT NULL DEFAULT 0"})
