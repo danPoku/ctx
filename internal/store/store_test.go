@@ -307,7 +307,7 @@ func migrationRecorded(t *testing.T, db *sql.DB, version int) bool {
 	return n == 1
 }
 
-// A pre-v0.1.4 database has neither column; the migration must add both and
+// A database from before file-aware memory has neither column; the migration must add both and
 // record itself, and running it again must be a no-op.
 func TestMigrateSessionGitOnOldDatabaseIsRecordedAndIdempotent(t *testing.T) {
 	db := openTestDB(t)

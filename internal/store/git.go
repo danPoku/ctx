@@ -206,7 +206,7 @@ func (g *GitResolver) Root(dir string) string {
 //
 // A path outside the repository is returned exactly as given. When cwd is not
 // a git checkout at all, the root falls back to cwd, which is the behaviour
-// before v0.1.4.
+// before file-aware memory.
 func (g *GitResolver) ProjectPath(cwd, path string) string {
 	if cwd == "" || path == "" {
 		return path

@@ -43,7 +43,7 @@ func New(db *sql.DB, cwd string, embedClient embed.Embedder) (*mcp.Server, error
 	}
 	s := &server{db: db, projectID: projectID, cwd: cwd, embedClient: embedClient}
 
-	srv := mcp.NewServer(&mcp.Implementation{Name: "ctx", Version: "0.1.4-dev"}, nil)
+	srv := mcp.NewServer(&mcp.Implementation{Name: "ctx", Version: "0.1.3+dev"}, nil)
 	s.registerSearch(srv)
 	s.registerChunk(srv)
 	s.registerSessions(srv)

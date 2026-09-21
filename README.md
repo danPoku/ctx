@@ -23,12 +23,12 @@ $ ctx search "how does the daemon embed new chunks in the background"
 ## Status
 
 Early. The current tagged release is v0.1.3; `master` includes unreleased
-v0.1.4 work toward file-aware memory. It has been run on one machine, on Ubuntu
+work toward file-aware memory. It has been run on one machine, on Ubuntu
 under WSL2; other platforms are untested. Expect breaking changes in the 0.x
 series, including to the database schema and the MCP tool output. See
 [Limitations](#limitations) before relying on it.
 
-Articles written before v0.1.4 describe the v0.1.3 feature set. They are still
+Articles written before this work describe the v0.1.3 feature set. They are still
 useful as snapshots of the original local-search release; pin `@v0.1.3` if you
 want exactly what those articles show.
 
