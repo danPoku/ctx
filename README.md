@@ -1,6 +1,6 @@
 # kaectx
 
-*kaectx (formerly ctx). Kae is Twi for "remember". The command is still `ctx`.*
+*kaectx (formerly ctx). The command is still `ctx`.*
 
 kaectx keeps one searchable copy of your coding-agent conversations, and lets any
 agent search it.
