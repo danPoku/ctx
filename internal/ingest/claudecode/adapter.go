@@ -27,7 +27,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/danPoku/ctx/internal/ingest"
+	"github.com/danPoku/kaectx/internal/ingest"
 )
 
 type Adapter struct{}

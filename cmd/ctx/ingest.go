@@ -9,9 +9,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/danPoku/ctx/internal/ingest"
-	"github.com/danPoku/ctx/internal/ingest/claudecode"
-	"github.com/danPoku/ctx/internal/ingest/codex"
+	"github.com/danPoku/kaectx/internal/ingest"
+	"github.com/danPoku/kaectx/internal/ingest/claudecode"
+	"github.com/danPoku/kaectx/internal/ingest/codex"
 )
 
 // agentSource pairs an agent with where its session logs live and how to

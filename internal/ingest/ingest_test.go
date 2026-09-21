@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/danPoku/ctx/internal/ingest"
-	"github.com/danPoku/ctx/internal/ingest/claudecode"
-	"github.com/danPoku/ctx/internal/ingest/codex"
-	"github.com/danPoku/ctx/internal/store"
+	"github.com/danPoku/kaectx/internal/ingest"
+	"github.com/danPoku/kaectx/internal/ingest/claudecode"
+	"github.com/danPoku/kaectx/internal/ingest/codex"
+	"github.com/danPoku/kaectx/internal/store"
 )
 
 func openTestDB(t *testing.T) *sql.DB {

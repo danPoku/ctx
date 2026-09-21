@@ -10,8 +10,8 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/danPoku/ctx/internal/embed"
-	"github.com/danPoku/ctx/internal/mcpserver"
+	"github.com/danPoku/kaectx/internal/embed"
+	"github.com/danPoku/kaectx/internal/mcpserver"
 )
 
 // runMCP serves ctx's tools over stdio. It's meant to be launched by a

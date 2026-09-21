@@ -11,9 +11,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/danPoku/ctx/internal/embed"
-	"github.com/danPoku/ctx/internal/search"
-	"github.com/danPoku/ctx/internal/store"
+	"github.com/danPoku/kaectx/internal/embed"
+	"github.com/danPoku/kaectx/internal/search"
+	"github.com/danPoku/kaectx/internal/store"
 )
 
 // axisEmbedder embeds every query as the unit vector along dimension 0, so a

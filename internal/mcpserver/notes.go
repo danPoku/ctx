@@ -11,8 +11,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/danPoku/ctx/internal/store"
-	"github.com/danPoku/ctx/queries"
+	"github.com/danPoku/kaectx/internal/store"
+	"github.com/danPoku/kaectx/queries"
 )
 
 // validNoteKinds mirrors notes.kind's CHECK constraint in

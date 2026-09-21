@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/danPoku/ctx/internal/daemon"
-	"github.com/danPoku/ctx/internal/embed"
+	"github.com/danPoku/kaectx/internal/daemon"
+	"github.com/danPoku/kaectx/internal/embed"
 )
 
 func runDaemon(args []string) error {

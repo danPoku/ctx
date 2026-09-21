@@ -10,9 +10,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/danPoku/ctx/internal/embed"
-	"github.com/danPoku/ctx/internal/search"
-	"github.com/danPoku/ctx/internal/store"
+	"github.com/danPoku/kaectx/internal/embed"
+	"github.com/danPoku/kaectx/internal/search"
+	"github.com/danPoku/kaectx/internal/store"
 )
 
 // searchFlagsWithValue lists this command's flags that take a value, so

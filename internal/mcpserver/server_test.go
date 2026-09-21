@@ -15,10 +15,10 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/danPoku/ctx/internal/ingest"
-	"github.com/danPoku/ctx/internal/ingest/claudecode"
-	"github.com/danPoku/ctx/internal/mcpserver"
-	"github.com/danPoku/ctx/internal/store"
+	"github.com/danPoku/kaectx/internal/ingest"
+	"github.com/danPoku/kaectx/internal/ingest/claudecode"
+	"github.com/danPoku/kaectx/internal/mcpserver"
+	"github.com/danPoku/kaectx/internal/store"
 )
 
 // brokenEmbedder always fails, so these tests are hermetic: they must not

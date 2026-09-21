@@ -12,8 +12,8 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/danPoku/ctx/internal/vecext"
-	"github.com/danPoku/ctx/migrations"
+	"github.com/danPoku/kaectx/internal/vecext"
+	"github.com/danPoku/kaectx/migrations"
 )
 
 func init() {

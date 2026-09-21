@@ -14,8 +14,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/danPoku/ctx/internal/embed"
-	"github.com/danPoku/ctx/internal/store"
+	"github.com/danPoku/kaectx/internal/embed"
+	"github.com/danPoku/kaectx/internal/store"
 )
 
 // server holds what every tool handler needs. projectID is resolved once,
@@ -42,7 +42,7 @@ func New(db *sql.DB, cwd string, embedClient embed.Embedder) (*mcp.Server, error
 	}
 	s := &server{db: db, projectID: projectID, embedClient: embedClient}
 
-	srv := mcp.NewServer(&mcp.Implementation{Name: "ctx", Version: "0.1.2"}, nil)
+	srv := mcp.NewServer(&mcp.Implementation{Name: "ctx", Version: "0.1.3"}, nil)
 	s.registerSearch(srv)
 	s.registerChunk(srv)
 	s.registerSessions(srv)

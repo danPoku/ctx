@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/danPoku/ctx/internal/store"
+	"github.com/danPoku/kaectx/internal/store"
 )
 
 // runProject handles `ctx project ...`. Today that is only `list` and

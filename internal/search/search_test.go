@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/danPoku/ctx/internal/ingest"
-	"github.com/danPoku/ctx/internal/ingest/claudecode"
-	"github.com/danPoku/ctx/internal/ingest/codex"
-	"github.com/danPoku/ctx/internal/search"
-	"github.com/danPoku/ctx/internal/store"
+	"github.com/danPoku/kaectx/internal/ingest"
+	"github.com/danPoku/kaectx/internal/ingest/claudecode"
+	"github.com/danPoku/kaectx/internal/ingest/codex"
+	"github.com/danPoku/kaectx/internal/search"
+	"github.com/danPoku/kaectx/internal/store"
 )
 
 // TestKeywordFindsIngestedChunk is the end-to-end proof for milestone 2:

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/danPoku/ctx/internal/store"
+	"github.com/danPoku/kaectx/internal/store"
 )
 
 func openFTSTestDB(t *testing.T) *sql.DB {

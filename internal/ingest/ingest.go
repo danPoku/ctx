@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/danPoku/ctx/internal/redact"
+	"github.com/danPoku/kaectx/internal/redact"
 )
 
 // FileResult is one file's outcome from RunAll.

@@ -18,7 +18,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/danPoku/ctx/internal/ingest"
+	"github.com/danPoku/kaectx/internal/ingest"
 )
 
 // Source is one agent's session tree: where it lives, and how to get a

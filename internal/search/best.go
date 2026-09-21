@@ -7,7 +7,7 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/danPoku/ctx/internal/embed"
+	"github.com/danPoku/kaectx/internal/embed"
 )
 
 // Result is search's unified hit shape, produced by either Keyword or

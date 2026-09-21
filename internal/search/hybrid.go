@@ -9,9 +9,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/danPoku/ctx/internal/embed"
-	"github.com/danPoku/ctx/internal/store"
-	"github.com/danPoku/ctx/queries"
+	"github.com/danPoku/kaectx/internal/embed"
+	"github.com/danPoku/kaectx/internal/store"
+	"github.com/danPoku/kaectx/queries"
 )
 
 // HybridResult is one row of SearchHybrid/SearchHybridByAgent's result set.

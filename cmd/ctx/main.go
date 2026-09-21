@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/danPoku/ctx/internal/store"
+	"github.com/danPoku/kaectx/internal/store"
 )
 
 func main() {

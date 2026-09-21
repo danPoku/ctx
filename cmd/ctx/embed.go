@@ -8,7 +8,7 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/danPoku/ctx/internal/embed"
+	"github.com/danPoku/kaectx/internal/embed"
 )
 
 func runEmbed(args []string) error {

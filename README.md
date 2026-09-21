@@ -1,11 +1,13 @@
-# ctx
+# kaectx
 
-ctx keeps one searchable copy of your coding-agent conversations, and lets any
+*kaectx (formerly ctx). Kae is Twi for "remember". The command is still `ctx`.*
+
+kaectx keeps one searchable copy of your coding-agent conversations, and lets any
 agent search it.
 
 I use Claude Code and Codex on the same projects. Each one writes its own
 session logs, in its own format, and neither can see what the other worked out
-yesterday. Neither is good at searching its own history either. ctx reads the
+yesterday. Neither is good at searching its own history either. kaectx reads the
 logs those tools already write, puts them in a single SQLite file, and answers
 queries from a command line and from an MCP server, so an agent can ask "have
 we dealt with this before?" and get an answer from any agent's past sessions.
@@ -20,7 +22,7 @@ $ ctx search "how does the daemon embed new chunks in the background"
 
 ## Status
 
-Early. The current release is v0.1.2. It has been run on one machine, on
+Early. The current release is v0.1.3. It has been run on one machine, on
 Ubuntu under WSL2; other platforms are untested. Expect breaking changes in
 the 0.x series, including to the database schema and the MCP tool output. See
 [Limitations](#limitations) before relying on it.
@@ -53,17 +55,23 @@ the 0.x series, including to the database schema and the MCP tool output. See
 ## Install
 
 ```
-go install -tags sqlite_fts5 github.com/danPoku/ctx/cmd/ctx@latest
+go install -tags sqlite_fts5 github.com/danPoku/kaectx/cmd/ctx@latest
 ```
 
-`@latest` follows the newest tagged release. To pin one, use `@v0.1.2`. Running
+`@latest` follows the newest tagged release. To pin one, use `@v0.1.3`. Running
 `go version -m "$(command -v ctx)"` shows which version you have installed.
+
+The repository and Go module were renamed from `ctx` to `kaectx` in v0.1.3. The
+old path `github.com/danPoku/ctx` only resolves up to v0.1.2, so
+`go install github.com/danPoku/ctx/...@latest` fails with a "module declares its
+path as" error. Use the `kaectx` path above. The binary, `~/.ctx/ctx.db` and the
+MCP server name are still `ctx`, so existing installs keep their data.
 
 Or from a clone:
 
 ```
-git clone https://github.com/danPoku/ctx
-cd ctx
+git clone https://github.com/danPoku/kaectx
+cd kaectx
 go install -tags sqlite_fts5 ./cmd/ctx
 ```
 
@@ -80,7 +88,7 @@ needs Apple's command-line compiler tools:
 
 ```
 xcode-select --install
-go install -tags sqlite_fts5 github.com/danPoku/ctx/cmd/ctx@latest
+go install -tags sqlite_fts5 github.com/danPoku/kaectx/cmd/ctx@latest
 ```
 
 For semantic search:
@@ -252,7 +260,7 @@ everything else keeps working. The queries are in `queries/retrieval.sql`.
 
 ## Privacy
 
-ctx only makes network requests to the Ollama URL you configure, which defaults
+kaectx only makes network requests to the Ollama URL you configure, which defaults
 to `localhost`. Transcripts and embeddings never leave the machine.
 
 Session logs contain whatever your agents saw, including the output of commands
@@ -277,7 +285,7 @@ way.
   exist yet. Ingest has been checked against logs from Claude Code 2.1.278 and
   codex-cli 0.153.0. These formats are undocumented and change without notice,
   so a new version can break an adapter.
-- ctx reads logs on the machine it runs on. Under WSL that means agents have to
+- kaectx reads logs on the machine it runs on. Under WSL that means agents have to
   run inside WSL. Windows-native agents write to `C:\Users\…` and are not read.
 - File-touch tracking (`sessions_touching`) only covers Claude Code's Read,
   Edit, MultiEdit and Write tools. Codex tool calls and edits made through a
