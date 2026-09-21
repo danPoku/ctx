@@ -181,6 +181,89 @@ SELECT s.id, s.agent, s.title, s.started_at,
  LIMIT :limit;
 
 
+-- name: ExplainFile :many
+-- File-centred context briefing. This stays intentionally compact: callers
+-- get the sessions that touched the file, what happened, the known git span,
+-- and one chunk id to open for the conversational "why".
+--
+-- Ranking: sessions that changed the file (anything but a read) come before
+-- sessions that only looked at it, then newest first — "who edited this" is
+-- the question, and a stray Read shouldn't outrank the session that rewrote it.
+--
+-- The chunk is anchored to the touch itself: the chunk whose seq range holds
+-- the most relevant touching message (latest change, else latest read). If
+-- that message isn't chunked yet (an unsettled tail turn), fall back to the
+-- nearest earlier chunk, then to the session's first chunk.
+WITH touched AS (
+    SELECT s.id,
+           s.agent,
+           s.title,
+           s.started_at,
+           s.git_branch,
+           s.starting_commit,
+           s.ending_commit,
+           s.commit_source,
+           group_concat(DISTINCT ft.action) AS actions,
+           COUNT(*) AS touches,
+           SUM(ft.action <> 'read') AS changes,
+           MAX(ft.created_at) AS last_touch_at,
+           (SELECT m.seq
+              FROM file_touches f2
+              JOIN messages m ON m.id = f2.message_id
+             WHERE f2.session_id = s.id
+               AND f2.project_id = :project_id
+               AND f2.path = :path
+             ORDER BY (f2.action <> 'read') DESC, f2.created_at DESC, f2.id DESC
+             LIMIT 1) AS anchor_seq
+      FROM file_touches ft
+      JOIN sessions s ON s.id = ft.session_id
+     WHERE ft.project_id = :project_id
+       AND ft.path = :path
+     GROUP BY s.id
+     ORDER BY (SUM(ft.action <> 'read') > 0) DESC,
+              COALESCE(MAX(ft.created_at), s.started_at) DESC,
+              s.id
+     LIMIT :limit
+),
+picked AS (
+    SELECT t.*,
+           COALESCE(
+               (SELECT c.id FROM chunks c
+                 WHERE c.session_id = t.id
+                   AND t.anchor_seq BETWEEN c.first_seq AND c.last_seq),
+               (SELECT c.id FROM chunks c
+                 WHERE c.session_id = t.id
+                   AND c.last_seq <= t.anchor_seq
+                 ORDER BY c.last_seq DESC
+                 LIMIT 1),
+               (SELECT c.id FROM chunks c
+                 WHERE c.session_id = t.id
+                 ORDER BY c.first_seq
+                 LIMIT 1)
+           ) AS chunk_id
+      FROM touched t
+)
+SELECT p.id,
+       p.agent,
+       p.title,
+       p.started_at,
+       p.git_branch,
+       p.starting_commit,
+       p.ending_commit,
+       p.commit_source,
+       p.actions,
+       p.touches,
+       p.changes,
+       p.last_touch_at,
+       p.chunk_id,
+       c.text AS preview
+  FROM picked p
+  LEFT JOIN chunks c ON c.id = p.chunk_id
+ ORDER BY (p.changes > 0) DESC,
+          COALESCE(p.last_touch_at, p.started_at) DESC,
+          p.id;
+
+
 -- name: GetSessionMessages :many
 -- Paged transcript read. The app caps (to_seq - from_seq) and the total
 -- characters returned, so an agent can't swallow a 2,000-message session in

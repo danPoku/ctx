@@ -38,6 +38,16 @@ func main() {
 			fmt.Fprintln(os.Stderr, "ctx search:", err)
 			os.Exit(1)
 		}
+	case "explain":
+		if err := runExplain(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "ctx explain:", err)
+			os.Exit(1)
+		}
+	case "repair":
+		if err := runRepair(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "ctx repair:", err)
+			os.Exit(1)
+		}
 	case "project":
 		if err := runProject(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "ctx project:", err)
@@ -75,6 +85,9 @@ commands:
   ingest [--path FILE] [--agent A]    ingest sessions (default: scan Claude Code + Codex session dirs)
   embed [--batch N]                   embed pending chunks via a local Ollama for semantic search
   search <query> [--agent A] [--limit N]   keyword+semantic search over ingested sessions in this project
+  explain <path> [--limit N]          show sessions, actions and git span for a project-relative file
+  repair git [--dry-run]              re-derive git commit spans and repo-root file paths for sessions ingested by older versions
+  repair touches [--dry-run]          backfill file records for Codex apply_patch calls ingested before ctx read them
   project list | merge <from> <into>  list projects, or fold a duplicate (e.g. from a deleted checkout) into another
   mcp                                 serve ctx's tools over MCP (stdio) for an agent to call
   daemon [--fallback-interval D]      watch session dirs continuously and ingest live (Ctrl+C to stop)`)

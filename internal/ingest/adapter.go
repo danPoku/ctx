@@ -23,12 +23,12 @@ type RawMessage struct {
 	Raw       []byte // the original log line, redacted before insert
 	CreatedAt string // ISO-8601 UTC, from the log line's own timestamp
 
-	// FileTouch is set when this message is a tool_call the adapter
-	// recognizes as touching a file (an edit, a read, ...), so the driver
-	// can also record it in file_touches. Left nil for everything else —
+	// FileTouches is set when this message is a tool_call the adapter
+	// recognizes as touching files (an edit, a read, a multi-file patch...),
+	// so the driver can also record them in file_touches. Left nil for everything else —
 	// most tool calls (a shell command, an unrecognized tool) don't name a
 	// file in a structured way an adapter can reliably extract.
-	FileTouch *FileTouch
+	FileTouches []FileTouch
 }
 
 // FileTouch is "which file did this tool call touch, and how" — extracted
@@ -49,10 +49,14 @@ type SessionUpdate struct {
 	NativeID  string // the agent's own session id — required on every non-skip line
 	CWD       string
 	GitBranch string
-	Version   string
-	Model     string
-	Title     string
-	Timestamp string
+	GitCommit string
+	// CommitSource says how GitCommit was obtained (store.Source*). The
+	// driver fills it in when it resolves the commit itself.
+	CommitSource string
+	Version      string
+	Model        string
+	Title        string
+	Timestamp    string
 }
 
 // ParseResult is what an Adapter returns for one input line.

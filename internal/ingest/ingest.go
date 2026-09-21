@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/danPoku/kaectx/internal/redact"
+	"github.com/danPoku/kaectx/internal/store"
 )
 
 // FileResult is one file's outcome from RunAll.
@@ -34,6 +35,7 @@ type FileResult struct {
 // error — it just yields no results.
 func RunAll(db *sql.DB, newAdapter func() Adapter, root string) ([]FileResult, error) {
 	var results []FileResult
+	git := store.NewGitResolver() // shared, so a repo's history is read once for the whole walk
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -41,7 +43,7 @@ func RunAll(db *sql.DB, newAdapter func() Adapter, root string) ([]FileResult, e
 		if d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 			return nil
 		}
-		results = append(results, FileResult{Path: path, Err: Run(db, newAdapter(), path)})
+		results = append(results, FileResult{Path: path, Err: run(db, newAdapter(), path, git)})
 		return nil
 	})
 	if errors.Is(err, fs.ErrNotExist) {
@@ -56,6 +58,10 @@ func RunAll(db *sql.DB, newAdapter func() Adapter, root string) ([]FileResult, e
 // that fails to parse is logged to sources.last_error and skipped — never
 // fatal to the rest of the file.
 func Run(db *sql.DB, adapter Adapter, path string) error {
+	return run(db, adapter, path, store.NewGitResolver())
+}
+
+func run(db *sql.DB, adapter Adapter, path string, git *store.GitResolver) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -150,7 +156,7 @@ func Run(db *sql.DB, adapter Adapter, path string) error {
 		if len(bytes.TrimSpace(trimmed)) == 0 {
 			continue
 		}
-		sid, err := processLine(db, adapter, trimmed, toolNames, sessionSeq, purged)
+		sid, err := processLine(db, adapter, git, trimmed, toolNames, sessionSeq, purged)
 		if err != nil {
 			lastErr = err.Error()
 			continue
@@ -208,7 +214,7 @@ func headHashUpTo(f *os.File, offset int64) (string, error) {
 // chunking afterward), or "" if the line carried no session information at
 // all (shouldn't happen for a well-formed conversational or ai-title line,
 // but Skip lines legitimately return "").
-func processLine(db *sql.DB, adapter Adapter, line []byte, toolNames map[string]string, sessionSeq map[string]int, purged map[string]bool) (string, error) {
+func processLine(db *sql.DB, adapter Adapter, git *store.GitResolver, line []byte, toolNames map[string]string, sessionSeq map[string]int, purged map[string]bool) (string, error) {
 	res, err := adapter.ParseLine(line)
 	if err != nil {
 		return "", err
@@ -218,6 +224,14 @@ func processLine(db *sql.DB, adapter Adapter, line []byte, toolNames map[string]
 	}
 	if res.Session.NativeID == "" {
 		return "", nil
+	}
+	if res.Session.GitCommit == "" {
+		// The commit that was current when the line was written, not HEAD
+		// now: a session ingested weeks later must not be stamped with a
+		// repository state it never saw.
+		res.Session.GitCommit, res.Session.CommitSource = git.Resolve(res.Session.CWD, res.Session.GitBranch, res.Session.Timestamp)
+	} else if res.Session.CommitSource == "" {
+		res.Session.CommitSource = store.SourceLogged
 	}
 
 	sessionID := adapter.Agent() + ":" + res.Session.NativeID
@@ -287,7 +301,7 @@ func processLine(db *sql.DB, adapter Adapter, line []byte, toolNames map[string]
 		return sessionID, err
 	}
 
-	if msg.FileTouch == nil {
+	if len(msg.FileTouches) == 0 {
 		return sessionID, nil
 	}
 	// INSERT OR IGNORE means a re-ingest replaying an already-seen seq
@@ -303,24 +317,14 @@ func processLine(db *sql.DB, adapter Adapter, line []byte, toolNames map[string]
 	if err != nil {
 		return sessionID, err
 	}
-	path := msg.FileTouch.Path
-	if res.Session.CWD != "" {
-		path = relativizePath(res.Session.CWD, path)
+	for _, ft := range msg.FileTouches {
+		path := ft.Path
+		path = git.ProjectPath(res.Session.CWD, path)
+		if _, err := db.Exec(`INSERT INTO file_touches(session_id, message_id, project_id, path, action, created_at, rooted)
+		                   VALUES (?,?,?,?,?,?,1)`,
+			sessionID, messageID, projectID, path, ft.Action, nullIfEmpty(msg.CreatedAt)); err != nil {
+			return sessionID, err
+		}
 	}
-	_, err = db.Exec(`INSERT INTO file_touches(session_id, message_id, project_id, path, action, created_at)
-	                   VALUES (?,?,?,?,?,?)`,
-		sessionID, messageID, projectID, path, msg.FileTouch.Action, nullIfEmpty(msg.CreatedAt))
-	return sessionID, err
-}
-
-// relativizePath reports path relative to cwd when path is inside cwd,
-// falling back to path unchanged (e.g. absolute, but outside the project —
-// a config file elsewhere, or a symlinked path filepath.Rel can't resolve
-// cleanly) rather than fail the whole ingest over it.
-func relativizePath(cwd, path string) string {
-	rel, err := filepath.Rel(cwd, path)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return path
-	}
-	return rel
+	return sessionID, nil
 }

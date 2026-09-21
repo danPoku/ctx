@@ -227,6 +227,88 @@ func TestSessionsTouching(t *testing.T) {
 	}
 }
 
+func TestExplainFile(t *testing.T) {
+	cs, db := testServer(t)
+
+	if _, err := db.Exec(`UPDATE sessions
+	                         SET git_branch = 'feature/memory',
+	                             starting_commit = '1111111111111111111111111111111111111111',
+	                             ending_commit = '2222222222222222222222222222222222222222'
+	                       WHERE id = 'claude-code:sess-1'`); err != nil {
+		t.Fatalf("seed git span: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO file_touches(session_id, project_id, path, action, created_at)
+	                       VALUES ('claude-code:sess-1', (SELECT project_id FROM sessions WHERE id='claude-code:sess-1'), 'main.go', 'edit', '2026-09-20T10:00:00Z')`); err != nil {
+		t.Fatalf("seed file_touches: %v", err)
+	}
+
+	var out struct {
+		Path     string `json:"path"`
+		Sessions []struct {
+			SessionID      string   `json:"session_id"`
+			Agent          string   `json:"agent"`
+			GitBranch      string   `json:"git_branch"`
+			StartingCommit string   `json:"starting_commit"`
+			EndingCommit   string   `json:"ending_commit"`
+			Actions        []string `json:"actions"`
+			ChunkID        *int64   `json:"chunk_id"`
+			Preview        string   `json:"preview"`
+		} `json:"sessions"`
+	}
+	callTool(t, cs, "explain_file", map[string]any{"path": "main.go"}, &out)
+
+	if out.Path != "main.go" {
+		t.Errorf("Path = %q, want main.go", out.Path)
+	}
+	if len(out.Sessions) != 1 {
+		t.Fatalf("sessions = %d, want 1", len(out.Sessions))
+	}
+	s := out.Sessions[0]
+	if s.SessionID != "claude-code:sess-1" || s.Agent != "claude-code" {
+		t.Errorf("session/agent = %q/%q", s.SessionID, s.Agent)
+	}
+	if s.GitBranch != "feature/memory" || s.StartingCommit == "" || s.EndingCommit == "" {
+		t.Errorf("git fields = branch %q start %q end %q", s.GitBranch, s.StartingCommit, s.EndingCommit)
+	}
+	if len(s.Actions) != 1 || s.Actions[0] != "edit" {
+		t.Errorf("Actions = %v, want [edit]", s.Actions)
+	}
+	if s.ChunkID == nil || s.Preview == "" {
+		t.Errorf("ChunkID/Preview = %v/%q, want a follow-up chunk and preview", s.ChunkID, s.Preview)
+	}
+}
+
+// A file nothing touched must come back as an empty list (not null), which
+// strict MCP clients validate against the tool's output schema; the limit is
+// capped; and an absolute path is accepted and rebased to project-relative.
+func TestExplainFileEmptyLimitAndAbsolutePath(t *testing.T) {
+	cs, db := testServer(t)
+
+	var empty struct {
+		Path     string `json:"path"`
+		Sessions []any  `json:"sessions"`
+	}
+	callTool(t, cs, "explain_file", map[string]any{"path": "./nothing/here.go", "limit": 100000}, &empty)
+	if empty.Path != "nothing/here.go" || empty.Sessions == nil || len(empty.Sessions) != 0 {
+		t.Errorf("empty result = %+v, want normalised path and a non-nil empty list", empty)
+	}
+
+	if _, err := db.Exec(`INSERT INTO file_touches(session_id, project_id, path, action, created_at)
+	                       VALUES ('claude-code:sess-1', (SELECT project_id FROM sessions WHERE id='claude-code:sess-1'), 'main.go', 'edit', '2026-09-20T10:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Sessions []struct {
+			Actions []string `json:"actions"`
+			Changes int      `json:"changes"`
+		} `json:"sessions"`
+	}
+	callTool(t, cs, "explain_file", map[string]any{"path": "/home/dev/proj/main.go"}, &out)
+	if len(out.Sessions) != 1 || out.Sessions[0].Changes != 1 {
+		t.Errorf("absolute path result = %+v, want the one edited session", out.Sessions)
+	}
+}
+
 func TestSaveNoteAndSearchNotes(t *testing.T) {
 	cs, _ := testServer(t)
 

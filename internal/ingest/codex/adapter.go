@@ -56,6 +56,10 @@ import (
 // a fresh one, or ingest.RunAll's per-file factory.
 type Adapter struct {
 	sessionID string
+	// cwd is remembered from session_meta / turn_context: only those lines
+	// carry it, but every later line needs it to relativize file paths and
+	// to resolve which git commit was checked out at that moment.
+	cwd string
 }
 
 func New() *Adapter { return &Adapter{} }
@@ -85,6 +89,7 @@ func (a *Adapter) ParseLine(raw []byte) (ingest.ParseResult, error) {
 			return ingest.ParseResult{}, fmt.Errorf("session_meta payload: %w", err)
 		}
 		a.sessionID = p.SessionID
+		a.cwd = p.CWD
 		return ingest.ParseResult{Session: ingest.SessionUpdate{
 			NativeID: a.sessionID, CWD: p.CWD, Version: p.CliVersion, Timestamp: l.Timestamp,
 		}}, nil
@@ -100,8 +105,11 @@ func (a *Adapter) ParseLine(raw []byte) (ingest.ParseResult, error) {
 		if err := json.Unmarshal(l.Payload, &p); err != nil {
 			return ingest.ParseResult{}, fmt.Errorf("turn_context payload: %w", err)
 		}
+		if p.CWD != "" {
+			a.cwd = p.CWD
+		}
 		return ingest.ParseResult{Session: ingest.SessionUpdate{
-			NativeID: a.sessionID, CWD: p.CWD, Model: p.Model, Timestamp: l.Timestamp,
+			NativeID: a.sessionID, CWD: a.cwd, Model: p.Model, Timestamp: l.Timestamp,
 		}}, nil
 
 	case "response_item":
@@ -147,7 +155,7 @@ func (a *Adapter) parseResponseItem(l line, raw []byte) (ingest.ParseResult, err
 	if err := json.Unmarshal(l.Payload, &p); err != nil {
 		return ingest.ParseResult{}, fmt.Errorf("response_item payload: %w", err)
 	}
-	upd := ingest.SessionUpdate{NativeID: a.sessionID, Timestamp: l.Timestamp}
+	upd := ingest.SessionUpdate{NativeID: a.sessionID, CWD: a.cwd, Timestamp: l.Timestamp}
 
 	switch p.Type {
 	case "message":
@@ -159,6 +167,7 @@ func (a *Adapter) parseResponseItem(l line, raw []byte) (ingest.ParseResult, err
 				Role: "assistant", Kind: "tool_call",
 				ToolName: p.Name, ToolUseID: p.CallID, Content: p.Input,
 				Raw: raw, CreatedAt: l.Timestamp,
+				FileTouches: PatchFileTouches(p.Name, p.Input),
 			},
 			Session: upd,
 		}, nil
@@ -262,7 +271,7 @@ func (a *Adapter) parseEventMsg(l line, raw []byte) (ingest.ParseResult, error) 
 	if err := json.Unmarshal(l.Payload, &p); err != nil {
 		return ingest.ParseResult{}, fmt.Errorf("event_msg payload: %w", err)
 	}
-	upd := ingest.SessionUpdate{NativeID: a.sessionID, Timestamp: l.Timestamp}
+	upd := ingest.SessionUpdate{NativeID: a.sessionID, CWD: a.cwd, Timestamp: l.Timestamp}
 
 	if p.Type == "task_complete" && p.Error != nil && p.Error.Message != "" {
 		return ingest.ParseResult{

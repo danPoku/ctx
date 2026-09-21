@@ -59,7 +59,7 @@ Migration 002 must be optional: if sqlite-vec fails to load, keyword search stil
 2. Claude Code adapter + redaction + `ctx ingest` (one-shot) + `ctx search` (FTS only).
 3. Codex adapter. Verify cross-agent keyword search works.
 4. `ctx mcp` exposing: search_context, recent_sessions, get_session,
-   sessions_touching, save_note, search_notes. Register it with Claude Code and Codex.
+   sessions_touching, explain_file, save_note, search_notes. Register it with Claude Code and Codex.
 5. Embedding worker + hybrid search.
 6. `ctx daemon` (fsnotify tailing), then Pi and BB adapters.
 7. Session summaries via a cheap model (optional, off by default).
